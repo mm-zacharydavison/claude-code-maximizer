@@ -1,0 +1,26 @@
+{
+  "name": "claude-code-maximizer",
+  "version": "0.1.0",
+  "description": "Optimize Claude Code Max 5-hour window usage",
+  "module": "src/cli/index.ts",
+  "type": "module",
+  "bin": {
+    "ccmax": "./bin/ccmax"
+  },
+  "scripts": {
+    "dev": "bun run src/cli/index.ts",
+    "build": "bun build src/cli/index.ts --compile --outfile bin/ccmax",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:e2e": "bun test tests/e2e",
+    "test:unit": "bun test tests/unit",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

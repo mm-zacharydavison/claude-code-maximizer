@@ -222,12 +222,12 @@ export async function install(args: string[]): Promise<void> {
     console.log();
     console.log("Check progress anytime with: ccmax status");
 
-    // Check if ~/.local/bin is in PATH
+    // Check if bin dir is in PATH (macOS uses /usr/local/bin, Linux uses ~/.local/bin)
     const path = process.env.PATH ?? "";
     if (!path.includes(BIN_DIR)) {
       console.log();
-      console.log("NOTE: Add ~/.local/bin to your PATH to use 'ccmax' globally:");
-      console.log('  export PATH="$HOME/.local/bin:$PATH"');
+      console.log(`NOTE: Add ${BIN_DIR} to your PATH to use 'ccmax' globally:`);
+      console.log(`  export PATH="${BIN_DIR}:$PATH"`);
     }
 
     console.log();

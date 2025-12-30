@@ -19,15 +19,15 @@ export async function stats(args: string[]): Promise<void> {
   const showLocal = args.includes("--local");
   const showAggregate = isSyncConfigured() && !showLocal;
 
-  // Parse --days flag (e.g., --days 1 or --days=1)
+  // Parse --days-ago flag (e.g., --days-ago 1 or --days-ago=1)
   let daysAgo = 0;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg === "--days" && args[i + 1]) {
+    if (arg === "--days-ago" && args[i + 1]) {
       daysAgo = parseInt(args[i + 1]!, 10);
       if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
-    } else if (arg.startsWith("--days=")) {
-      daysAgo = parseInt(arg.slice(7), 10);
+    } else if (arg.startsWith("--days-ago=")) {
+      daysAgo = parseInt(arg.slice(11), 10);
       if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
     }
   }
@@ -90,13 +90,27 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
   const dayEndISO = toISO(dayEnd);
 
   // Get windows for the target day only (for markers)
-  const windows = getWindowsInRange(dayStartISO, dayEndISO);
+  // Use aggregate windows if available, otherwise local
+  let windows: { window_start: string; window_end: string }[];
+  if (useAggregate) {
+    const aggregateWindows = getAggregateWindows();
+    if (aggregateWindows && aggregateWindows.length > 0) {
+      const filtered = aggregateWindows.filter((w) => w.window_start >= dayStartISO && w.window_start < dayEndISO);
+      // Fall back to local if no aggregate windows for this day
+      windows = filtered.length > 0 ? filtered : getWindowsInRange(dayStartISO, dayEndISO);
+    } else {
+      windows = getWindowsInRange(dayStartISO, dayEndISO);
+    }
+  } else {
+    windows = getWindowsInRange(dayStartISO, dayEndISO);
+  }
 
   // Get hourly max usage (aggregate from cache or local) for the target day
   let hourlyUsage: { hour: number; max_usage: number }[];
   if (useAggregate) {
     const aggregate = getAggregateHourlyUsage(dayStartISO);
-    hourlyUsage = aggregate ?? getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
+    // Fall back to local if aggregate returns null or empty
+    hourlyUsage = aggregate && aggregate.length > 0 ? aggregate : getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
   } else {
     hourlyUsage = getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
   }
@@ -281,8 +295,8 @@ function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): 
   const windows = aggregateWindows.filter((w) => w.window_start >= startISO && w.window_start < endISO);
 
   if (windows.length === 0) {
-    const dayLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `on ${formatDate(start)}`;
-    console.log(`No windows recorded ${dayLabel}.`);
+    // Fall back to local data if no aggregate windows for this day
+    renderWindowSummary(start, end, daysAgo);
     return;
   }
 

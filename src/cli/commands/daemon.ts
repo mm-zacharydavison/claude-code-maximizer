@@ -1,7 +1,5 @@
 import { spawn } from "child_process";
 import * as fs from "fs";
-import * as path from "path";
-import { homedir } from "os";
 import { isInstalled } from "../../config/state.ts";
 import { loadState, setDaemonPid } from "../../config/state.ts";
 import { startDaemon, isDaemonRunning } from "../../daemon/index.ts";
@@ -13,13 +11,22 @@ import {
   enableService,
   isServiceRunning,
   isServiceEnabled,
+  getServiceTypeName,
 } from "../../daemon/service.ts";
+import { LOG_DIR, DAEMON_LOG_PATH } from "../../utils/paths.ts";
+import { isMacOS, isLinux, isPlatformSupported, getPlatformName } from "../../utils/platform.ts";
 
 export async function daemon(args: string[]): Promise<void> {
   const subcommand = args[0];
 
   if (!isInstalled()) {
     console.log("ccmax is not installed. Run 'ccmax install' first.");
+    return;
+  }
+
+  if (!isPlatformSupported()) {
+    console.log(`Daemon is not supported on ${getPlatformName()}.`);
+    console.log("Supported platforms: Linux, macOS");
     return;
   }
 
@@ -42,11 +49,11 @@ export async function daemon(args: string[]): Promise<void> {
       break;
 
     case "install-service":
-      await installSystemdService();
+      await installPlatformService();
       break;
 
     case "uninstall-service":
-      await uninstallSystemdService();
+      await uninstallPlatformService();
       break;
 
     default:
@@ -55,7 +62,7 @@ export async function daemon(args: string[]): Promise<void> {
 }
 
 async function daemonStart(args: string[]): Promise<void> {
-  const useSystemd = args.includes("--systemd");
+  const useService = args.includes("--service") || args.includes("--systemd") || args.includes("--launchd");
   const state = loadState();
 
   // Check if already running
@@ -64,9 +71,9 @@ async function daemonStart(args: string[]): Promise<void> {
     return;
   }
 
-  if (useSystemd) {
-    // Use systemd
-    console.log("Starting daemon via systemd...");
+  if (useService) {
+    const serviceType = getServiceTypeName();
+    console.log(`Starting daemon via ${serviceType}...`);
 
     // Install and enable service if not already
     if (!isServiceEnabled()) {
@@ -85,7 +92,7 @@ async function daemonStart(args: string[]): Promise<void> {
 
     const result = startService();
     if (result.success) {
-      console.log("Daemon started via systemd.");
+      console.log(`Daemon started via ${serviceType}.`);
       console.log("It will automatically restart on boot.");
     } else {
       console.error(`Failed to start daemon: ${result.error}`);
@@ -95,10 +102,8 @@ async function daemonStart(args: string[]): Promise<void> {
     console.log("Starting daemon in background...");
 
     // Set up log file for daemon output
-    const logDir = path.join(homedir(), ".local", "share", "ccmax");
-    fs.mkdirSync(logDir, { recursive: true });
-    const logPath = path.join(logDir, "daemon.log");
-    const logFile = fs.openSync(logPath, "a");
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const logFile = fs.openSync(DAEMON_LOG_PATH, "a");
 
     // For compiled Bun binaries, execPath is the binary itself (not the bun runtime)
     const child = spawn(process.execPath, ["daemon", "run"], {
@@ -114,7 +119,7 @@ async function daemonStart(args: string[]): Promise<void> {
       console.log(`Daemon started (PID: ${child.pid})`);
       console.log();
       console.log("Note: This daemon will stop when you log out.");
-      console.log("For persistent operation, use: ccmax daemon start --systemd");
+      console.log(`For persistent operation, use: ccmax daemon start --service`);
     } else {
       console.error("Failed to start daemon.");
     }
@@ -124,9 +129,10 @@ async function daemonStart(args: string[]): Promise<void> {
 async function daemonStop(): Promise<void> {
   const state = loadState();
 
-  // Check systemd first
+  // Check platform service first
   if (isServiceRunning()) {
-    console.log("Stopping daemon via systemd...");
+    const serviceType = getServiceTypeName();
+    console.log(`Stopping daemon via ${serviceType}...`);
     const result = stopService();
     if (result.success) {
       console.log("Daemon stopped.");
@@ -153,17 +159,19 @@ async function daemonStop(): Promise<void> {
 
 async function daemonStatus(): Promise<void> {
   const state = loadState();
+  const serviceType = getServiceTypeName();
 
   console.log();
   console.log("Daemon Status");
   console.log("─".repeat(40));
 
-  // Check systemd service
+  // Check platform service
   const serviceEnabled = isServiceEnabled();
   const serviceRunning = isServiceRunning();
 
   if (serviceEnabled || serviceRunning) {
-    console.log(`  Systemd service:  ${serviceRunning ? "✓ Running" : "✗ Stopped"}`);
+    const serviceLabel = serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
+    console.log(`  ${serviceLabel} service: ${serviceRunning ? "✓ Running" : "✗ Stopped"}`);
     console.log(`  Auto-start:       ${serviceEnabled ? "✓ Enabled" : "✗ Disabled"}`);
   }
 
@@ -182,21 +190,23 @@ async function daemonStatus(): Promise<void> {
   console.log();
 }
 
-async function installSystemdService(): Promise<void> {
-  console.log("Installing systemd service...");
+async function installPlatformService(): Promise<void> {
+  const serviceType = getServiceTypeName();
+  console.log(`Installing ${serviceType} service...`);
 
   const result = installService();
   if (result.success) {
     console.log("Service installed successfully.");
     console.log();
-    console.log("To start the service: ccmax daemon start --systemd");
+    console.log(`To start the service: ccmax daemon start --service`);
   } else {
     console.error(`Failed to install service: ${result.error}`);
   }
 }
 
-async function uninstallSystemdService(): Promise<void> {
-  console.log("Uninstalling systemd service...");
+async function uninstallPlatformService(): Promise<void> {
+  const serviceType = getServiceTypeName();
+  console.log(`Uninstalling ${serviceType} service...`);
 
   const result = uninstallService();
   if (result.success) {
@@ -207,6 +217,9 @@ async function uninstallSystemdService(): Promise<void> {
 }
 
 function showDaemonHelp(): void {
+  const serviceType = getServiceTypeName();
+  const serviceFlag = isMacOS() ? "--launchd" : isLinux() ? "--systemd" : "--service";
+
   console.log(`
 ccmax daemon - Manage the background daemon
 
@@ -215,16 +228,17 @@ USAGE:
 
 SUBCOMMANDS:
   start             Start the daemon in background
-  start --systemd   Start via systemd (persists across reboots)
+  start --service   Start via ${serviceType} (persists across reboots)
   stop              Stop the daemon
   status            Show daemon status
-  install-service   Install systemd user service
-  uninstall-service Remove systemd user service
+  install-service   Install ${serviceType} user service
+  uninstall-service Remove ${serviceType} user service
 
 EXAMPLES:
-  ccmax daemon start          Start daemon (stops on logout)
-  ccmax daemon start --systemd  Start with systemd (auto-restarts)
-  ccmax daemon stop           Stop the daemon
-  ccmax daemon status         Check if daemon is running
+  ccmax daemon start            Start daemon (stops on logout)
+  ccmax daemon start --service  Start with ${serviceType} (auto-restarts)
+  ccmax daemon start ${serviceFlag}  Same as --service
+  ccmax daemon stop             Stop the daemon
+  ccmax daemon status           Check if daemon is running
 `);
 }

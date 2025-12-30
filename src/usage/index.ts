@@ -1,8 +1,9 @@
-import { spawn } from "bun";
+import { spawn, spawnSync } from "bun";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { USAGE_CACHE_PATH, CACHE_DIR } from "../utils/paths.ts";
+import { isMacOS } from "../utils/platform.ts";
 
 const DEFAULT_CACHE_TTL = 300; // 5 minutes
 
@@ -72,6 +73,20 @@ export function getCachedUsage(ttl: number = DEFAULT_CACHE_TTL): ClaudeUsage | n
 }
 
 function findClaudeBinary(): string | null {
+  // First try `which claude` to find it in PATH
+  try {
+    const result = spawnSync(["which", "claude"]);
+    if (result.exitCode === 0) {
+      const path = result.stdout.toString().trim();
+      if (path && existsSync(path)) {
+        return path;
+      }
+    }
+  } catch {
+    // Fall through to manual search
+  }
+
+  // Fall back to known locations
   const home = homedir();
   const candidates = [
     join(home, ".claude", "local", "claude"),
@@ -215,88 +230,94 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function fetchClaudeUsage(claudePath: string, _timeout: number): Promise<ClaudeUsage | null> {
-  // Use `script` command to create a PTY for Claude's TUI
-  // This works on Linux and macOS
-  const proc = spawn(["script", "-q", "-c", claudePath, "/dev/null"], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const tmpFile = `/tmp/ccmax-usage-${Date.now()}.txt`;
+  const scriptFile = `/tmp/ccmax-script-${Date.now()}.sh`;
 
-  let output = "";
-  let finished = false;
-
-  // Collect output
-  const reader = proc.stdout.getReader();
-  const readOutput = async () => {
-    try {
-      while (!finished) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        output += new TextDecoder().decode(value);
-      }
-    } catch {
-      // Ignore read errors on close
-    }
-  };
-
-  const outputPromise = readOutput();
+  // Create a shell script that handles the interactive session
+  // This script:
+  // 1. Uses `script` to create a PTY
+  // 2. Runs Claude in a subshell
+  // 3. Sends /usage command after Claude starts
+  // 4. Waits for output and exits
+  const interactiveScript = `#!/bin/bash
+# Run Claude with script providing PTY, capturing to output file
+{
+  sleep 3
+  printf '/usage'
+  sleep 0.3
+  printf '\\x1b'  # Escape to dismiss autocomplete
+  sleep 0.2
+  printf '\\r'    # Carriage return to execute
+  sleep 4
+  printf '\\x1b'  # Escape to close usage dialog
+  sleep 0.5
+  printf '/exit'
+  sleep 0.2
+  printf '\\x1b'  # Escape to dismiss autocomplete
+  sleep 0.2
+  printf '\\r'    # Carriage return to execute
+  sleep 1
+} | ${isMacOS()
+    ? `script -q "${tmpFile}" "${claudePath}"`
+    : `script -q -c "${claudePath}" "${tmpFile}"`}
+`;
 
   try {
-    // Wait for Claude to initialize
-    await sleep(2500);
+    // Write the script
+    writeFileSync(scriptFile, interactiveScript, { mode: 0o755 });
 
-    // Send /usage command
-    proc.stdin.write("/usage");
-    await sleep(500);
-    proc.stdin.write("\r");
+    // Run the script
+    const proc = spawn(["bash", scriptFile], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      env: { ...process.env, TERM: "xterm-256color" },
+    });
 
-    // Wait for output
-    await sleep(3000);
+    // Wait for completion with timeout (script takes ~10s total)
+    const timeoutPromise = sleep(20000).then(() => "timeout");
+    const exitPromise = proc.exited.then(() => "done");
+    const raceResult = await Promise.race([exitPromise, timeoutPromise]);
 
-    // Check if we got the usage data
-    if (!output.includes("% used")) {
-      // Try waiting a bit longer
-      await sleep(2000);
+    if (raceResult === "timeout") {
+      try {
+        proc.kill();
+      } catch {
+        // Already dead
+      }
     }
 
-    // Send Escape to close the dialog
-    proc.stdin.write("\x1b");
+    // Give filesystem time to flush
     await sleep(300);
 
-    // Send /exit to quit
-    proc.stdin.write("/exit\r");
-    await sleep(500);
-
-    finished = true;
-    proc.stdin.end();
-
-    // Wait for process to exit with timeout
-    const exitPromise = proc.exited;
-    const timeoutPromise = sleep(3000).then(() => null);
-    await Promise.race([exitPromise, timeoutPromise]);
-
-    // Kill if still running
-    try {
-      proc.kill();
-    } catch {
-      // Already dead
+    // Read the output file
+    let output = "";
+    if (existsSync(tmpFile)) {
+      output = readFileSync(tmpFile, "utf-8");
     }
 
-    await outputPromise;
+    // Clean up temp files
+    try {
+      const { unlinkSync } = await import("fs");
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+      if (existsSync(scriptFile)) unlinkSync(scriptFile);
+    } catch {
+      // Ignore cleanup errors
+    }
 
-    // Parse the output
     if (output.includes("% used")) {
       return parseUsageOutput(output);
     }
 
     return null;
   } catch {
-    finished = true;
+    // Clean up on error
     try {
-      proc.kill();
+      const { unlinkSync } = await import("fs");
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+      if (existsSync(scriptFile)) unlinkSync(scriptFile);
     } catch {
-      // Already dead
+      // Ignore cleanup errors
     }
     return null;
   }

@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { isMacOS, isLinux } from "../utils/platform.ts";
 
 export interface NotificationOptions {
   title: string;
@@ -8,9 +9,48 @@ export interface NotificationOptions {
 }
 
 export async function sendNotification(options: NotificationOptions): Promise<boolean> {
+  if (isMacOS()) {
+    return sendMacOSNotification(options);
+  } else if (isLinux()) {
+    return sendLinuxNotification(options);
+  }
+  return false;
+}
+
+/**
+ * Send notification on macOS using osascript (AppleScript)
+ */
+async function sendMacOSNotification(options: NotificationOptions): Promise<boolean> {
+  const { title, message } = options;
+
+  try {
+    // Escape quotes for AppleScript
+    const escapedTitle = title.replace(/"/g, '\\"');
+    const escapedMessage = message.replace(/"/g, '\\"');
+
+    const script = `display notification "${escapedMessage}" with title "${escapedTitle}"`;
+
+    const proc = spawn("osascript", ["-e", script], {
+      stdio: "ignore",
+      detached: true,
+    });
+
+    return new Promise((resolve) => {
+      proc.on("error", () => resolve(false));
+      proc.on("exit", (code) => resolve(code === 0));
+      proc.unref();
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Send notification on Linux using notify-send (libnotify)
+ */
+async function sendLinuxNotification(options: NotificationOptions): Promise<boolean> {
   const { title, message, urgency = "normal" } = options;
 
-  // Use notify-send on Linux
   try {
     const args = [
       `--urgency=${urgency}`,

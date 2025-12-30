@@ -1,9 +1,11 @@
 import * as readline from "readline";
 import { uninstallHook, isHookInstalled } from "../../hook/install.ts";
 import { isInstalled } from "../../config/state.ts";
-import { DATA_DIR, INSTALLED_BINARY_PATH } from "../../utils/paths.ts";
+import { DATA_DIR, INSTALLED_BINARY_PATH, LOG_DIR } from "../../utils/paths.ts";
 import { rmSync, existsSync, unlinkSync } from "fs";
 import { closeDb } from "../../db/client.ts";
+import { uninstallService, isServiceEnabled, isServiceRunning, getServiceTypeName } from "../../daemon/service.ts";
+import { isPlatformSupported } from "../../utils/platform.ts";
 
 async function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -31,10 +33,14 @@ export async function uninstall(args: string[]): Promise<void> {
 
   if (dryRun) {
     console.log("[DRY RUN] Would perform the following actions:");
+    if (isPlatformSupported() && (isServiceEnabled() || isServiceRunning())) {
+      console.log(`  - Uninstall ${getServiceTypeName()} service`);
+    }
     console.log("  - Remove Claude Code hooks");
     console.log(`  - Remove binary at ${INSTALLED_BINARY_PATH}`);
     if (purge) {
       console.log(`  - Delete all data in ${DATA_DIR}`);
+      console.log(`  - Delete logs in ${LOG_DIR}`);
     }
     return;
   }
@@ -46,6 +52,19 @@ export async function uninstall(args: string[]): Promise<void> {
     if (answer !== "yes" && answer !== "y") {
       console.log("Cancelled.");
       return;
+    }
+  }
+
+  // Stop and remove service if running
+  if (isPlatformSupported() && (isServiceEnabled() || isServiceRunning())) {
+    const serviceType = getServiceTypeName();
+    process.stdout.write(`Uninstalling ${serviceType} service... `);
+    const serviceResult = uninstallService();
+    if (!serviceResult.success) {
+      console.log("✗");
+      console.error(`Error: ${serviceResult.error}`);
+    } else {
+      console.log("✓");
     }
   }
 
@@ -87,6 +106,20 @@ export async function uninstall(args: string[]): Promise<void> {
       } catch (err) {
         console.log("✗");
         console.error(`Error deleting data: ${err instanceof Error ? err.message : "Unknown error"}`);
+      }
+    } else {
+      console.log("✓ (nothing to delete)");
+    }
+
+    // Also remove logs
+    process.stdout.write("Deleting logs... ");
+    if (existsSync(LOG_DIR)) {
+      try {
+        rmSync(LOG_DIR, { recursive: true, force: true });
+        console.log("✓");
+      } catch (err) {
+        console.log("✗");
+        console.error(`Error deleting logs: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
     } else {
       console.log("✓ (nothing to delete)");

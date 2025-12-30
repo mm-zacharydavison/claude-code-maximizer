@@ -1,6 +1,6 @@
-import { getWindowsSince, getHourlyMaxUsage, getOptimizedMetrics, getAllBaselineStats } from "../../db/queries.ts";
+import { getWindowsInRange, getHourlyMaxUsageInRange, getOptimizedMetrics, getAllBaselineStats } from "../../db/queries.ts";
 import { isInstalled, isLearningComplete } from "../../config/state.ts";
-import { fromISO, formatTime, toISO } from "../../utils/time.ts";
+import { fromISO, formatTime, toISO, startOfDay, formatDate } from "../../utils/time.ts";
 import { dbExists } from "../../db/client.ts";
 import { isSyncConfigured } from "../../config/index.ts";
 import { getAggregateWindows, getAggregateHourlyUsage } from "../../sync/gist.ts";
@@ -19,20 +19,35 @@ export async function stats(args: string[]): Promise<void> {
   const showLocal = args.includes("--local");
   const showAggregate = isSyncConfigured() && !showLocal;
 
+  // Parse --days flag (e.g., --days 1 or --days=1)
+  let daysAgo = 0;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--days" && args[i + 1]) {
+      daysAgo = parseInt(args[i + 1]!, 10);
+      if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
+    } else if (arg.startsWith("--days=")) {
+      daysAgo = parseInt(arg.slice(7), 10);
+      if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
+    }
+  }
+
   console.log();
 
-  // Get data for last 24 hours
+  // Calculate date range for the specified day
   const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const targetDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+  const dayStart = startOfDay(targetDate);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   // Render the usage graph
-  renderUsageGraph(yesterday, now, showAggregate);
+  renderUsageGraph(dayStart, dayEnd, showAggregate, daysAgo);
 
   // Render window summary
   if (showAggregate) {
-    renderAggregateWindowSummary(yesterday, now);
+    renderAggregateWindowSummary(dayStart, dayEnd, daysAgo);
   } else {
-    renderWindowSummary(yesterday, now);
+    renderWindowSummary(dayStart, dayEnd, daysAgo);
   }
 
   // Render impact stats if optimization has started
@@ -57,26 +72,33 @@ const COLORS = {
 // Colors for alternating windows
 const WINDOW_COLORS = [COLORS.cyan, COLORS.yellow, COLORS.magenta, COLORS.green, COLORS.blue];
 
-function renderUsageGraph(_start: Date, _end: Date, useAggregate: boolean): void {
-  console.log("Usage today");
+function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, daysAgo: number): void {
+  // Build title based on which day we're showing
+  let title: string;
+  if (daysAgo === 0) {
+    title = "Usage today";
+  } else if (daysAgo === 1) {
+    title = "Usage yesterday";
+  } else {
+    title = `Usage ${formatDate(dayStart)}`;
+  }
+  console.log(title);
   console.log("═".repeat(62));
   console.log();
 
-  // Get start of today for filtering
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayISO = toISO(todayStart);
+  const dayStartISO = toISO(dayStart);
+  const dayEndISO = toISO(dayEnd);
 
-  // Get windows for today only (for markers)
-  const windows = getWindowsSince(todayISO);
+  // Get windows for the target day only (for markers)
+  const windows = getWindowsInRange(dayStartISO, dayEndISO);
 
-  // Get hourly max usage (aggregate from cache or local) - today only
+  // Get hourly max usage (aggregate from cache or local) for the target day
   let hourlyUsage: { hour: number; max_usage: number }[];
   if (useAggregate) {
-    const aggregate = getAggregateHourlyUsage(todayISO);
-    hourlyUsage = aggregate ?? getHourlyMaxUsage(todayISO);
+    const aggregate = getAggregateHourlyUsage(dayStartISO);
+    hourlyUsage = aggregate ?? getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
   } else {
-    hourlyUsage = getHourlyMaxUsage(todayISO);
+    hourlyUsage = getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
   }
 
   // Build hour to usage map
@@ -196,15 +218,17 @@ function renderUsageGraph(_start: Date, _end: Date, useAggregate: boolean): void
   console.log();
 }
 
-function renderWindowSummary(start: Date, _end: Date): void {
-  const windows = getWindowsSince(toISO(start));
+function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
+  const windows = getWindowsInRange(toISO(start), toISO(end));
 
   if (windows.length === 0) {
-    console.log("No windows recorded in the past 24 hours.");
+    const dayLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `on ${formatDate(start)}`;
+    console.log(`No windows recorded ${dayLabel}.`);
     return;
   }
 
-  console.log("Windows (past 24h):");
+  const headerLabel = daysAgo === 0 ? "(today)" : daysAgo === 1 ? "(yesterday)" : `(${formatDate(start)})`;
+  console.log(`Windows ${headerLabel}:`);
   console.log("─".repeat(60));
 
   for (const window of windows) {
@@ -242,25 +266,28 @@ function renderWindowSummary(start: Date, _end: Date): void {
   console.log();
 }
 
-function renderAggregateWindowSummary(start: Date, _end: Date): void {
+function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): void {
   const aggregateWindows = getAggregateWindows();
 
   if (!aggregateWindows || aggregateWindows.length === 0) {
     // Fall back to local data if aggregate fetch fails
-    renderWindowSummary(start, _end);
+    renderWindowSummary(start, end, daysAgo);
     return;
   }
 
   // Filter to windows in the time range
   const startISO = toISO(start);
-  const windows = aggregateWindows.filter((w) => w.window_start >= startISO);
+  const endISO = toISO(end);
+  const windows = aggregateWindows.filter((w) => w.window_start >= startISO && w.window_start < endISO);
 
   if (windows.length === 0) {
-    console.log("No windows recorded in the past 24 hours.");
+    const dayLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `on ${formatDate(start)}`;
+    console.log(`No windows recorded ${dayLabel}.`);
     return;
   }
 
-  console.log(`Windows (past 24h) ${COLORS.cyan}[all machines]${COLORS.reset}:`);
+  const headerLabel = daysAgo === 0 ? "(today)" : daysAgo === 1 ? "(yesterday)" : `(${formatDate(start)})`;
+  console.log(`Windows ${headerLabel} ${COLORS.cyan}[all machines]${COLORS.reset}:`);
   console.log("─".repeat(60));
 
   for (const window of windows) {

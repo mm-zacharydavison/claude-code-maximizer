@@ -221,4 +221,154 @@ describe("ccmax stats", () => {
     expect(result.stdout).not.toContain("Windows avoided");
     expect(result.exitCode).toBe(0);
   });
+
+  describe("--days flag", () => {
+    test("--days 1 shows yesterday's data", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 80, db.yesterday)  // Yesterday's data
+        .hourly(10, 30)                 // Today's data
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "1"], env.getEnv());
+      const graph = extractGraphBox(result.cleanStdout);
+
+      // Should show yesterday's 80% usage at hour 10, not today's 30%
+      expect(result.stdout).toContain("Usage yesterday");
+      expect(graph).toContain("█"); // 80% should have full blocks
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days=1 format works", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(12, 60, db.yesterday)
+        .done();
+
+      const result = await runCcmax(["stats", "--days=1"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage yesterday");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days 2 shows data from 2 days ago with date in title", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      const twoDaysAgo = db.daysAgo(2);
+      db.hourly(14, 70, twoDaysAgo)
+        .hourly(14, 40)  // Today's data (should not appear)
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "2"], env.getEnv());
+
+      // Should show date in YYYY-MM-DD format
+      const expectedDate = twoDaysAgo.toISOString().split("T")[0];
+      expect(result.stdout).toContain(`Usage ${expectedDate}`);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days shows empty graph for day with no data", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 80)  // Only today has data
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "3"], env.getEnv());
+      const graph = extractGraphBox(result.cleanStdout);
+
+      // Graph should be empty (no █ characters)
+      const expectedGraph = `\
+     ┌────────────────────────────────────────────────┐
+100% │                                                │
+ 80% │                                                │
+ 60% │                                                │
+ 40% │                                                │
+ 20% │                                                │
+  0% │                                                │
+     └────────────────────────────────────────────────┘`;
+
+      expect(graph).toBe(expectedGraph);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days shows windows for specified day only", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(7, true));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.window("09:00", "14:00", { active: 200, usage: 65, date: db.yesterday })
+        .window("10:00", "15:00", { active: 100, usage: 30 })  // Today
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "1"], env.getEnv());
+
+      expect(result.stdout).toContain("200 min active");
+      expect(result.stdout).not.toContain("100 min active");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days with no windows shows appropriate message", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(7, true));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.window("10:00", "15:00", { active: 100, usage: 30 })  // Today only
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "1"], env.getEnv());
+
+      expect(result.stdout).toMatch(/no windows recorded yesterday/i);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days combined with --local works", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(11, 55, db.yesterday)
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "1", "--local"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage yesterday");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("invalid --days value defaults to today", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 50)
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "invalid"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage today");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("negative --days value defaults to today", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 50)
+        .done();
+
+      const result = await runCcmax(["stats", "--days", "-1"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage today");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

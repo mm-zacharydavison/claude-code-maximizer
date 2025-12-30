@@ -39,6 +39,13 @@ export class TestDbBuilder {
     return d;
   }
 
+  /** Get a date N days ago (midnight) */
+  daysAgo(n: number): Date {
+    const d = new Date(this._today);
+    d.setDate(d.getDate() - n);
+    return d;
+  }
+
   /**
    * Insert hourly usage record.
    * @param hour - Hour of day (0-23)

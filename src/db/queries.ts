@@ -77,6 +77,25 @@ export function getHourlyUsageSince(since: string): HourlyUsageRecord[] {
     .all(sinceHour);
 }
 
+export function getHourlyMaxUsageInRange(start: string, end: string): HourlyUsage[] {
+  const db = getDb();
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const startHour = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}-${String(startDate.getHours()).padStart(2, '0')}`;
+  const endHour = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}-${String(endDate.getHours()).padStart(2, '0')}`;
+
+  return db
+    .query<HourlyUsage, [string, string]>(
+      `SELECT
+        CAST(substr(date_hour, 12, 2) AS INTEGER) as hour,
+        usage_pct as max_usage
+       FROM hourly_usage
+       WHERE date_hour >= ? AND date_hour < ?
+       ORDER BY date_hour`
+    )
+    .all(startHour, endHour);
+}
+
 export function getHourlyUsageCount(): number {
   const db = getDb();
   const row = db

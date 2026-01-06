@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SyncData, WindowData } from "../../src/sync/gist.ts";
+import { findExistingGist } from "../../src/sync/gist.ts";
 
 // Mock file-based "gist" for testing
 interface MockGist {
@@ -301,5 +302,103 @@ describe("sync utilities", () => {
       );
       expect(totalWindows).toBe(3);
     });
+  });
+});
+
+describe("findExistingGist", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function mockFetch(fn: () => Promise<Partial<Response>>): void {
+    globalThis.fetch = fn as unknown as typeof fetch;
+  }
+
+  test("finds gist with ccmax-sync.json file", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: "gist-other", files: { "notes.txt": {} } },
+            { id: "gist-ccmax", files: { "ccmax-sync.json": {} } },
+            { id: "gist-another", files: { "data.json": {} } },
+          ]),
+      })
+    );
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBe("gist-ccmax");
+  });
+
+  test("returns null when no matching gist exists", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: "gist-1", files: { "notes.txt": {} } },
+            { id: "gist-2", files: { "other.json": {} } },
+          ]),
+      })
+    );
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when user has no gists", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      })
+    );
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null on API error", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: false,
+        status: 401,
+      })
+    );
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null on network error", async () => {
+    mockFetch(() => Promise.reject(new Error("Network error")));
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBeNull();
+  });
+
+  test("finds first matching gist when multiple exist", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: "gist-first-ccmax", files: { "ccmax-sync.json": {} } },
+            { id: "gist-second-ccmax", files: { "ccmax-sync.json": {} } },
+          ]),
+      })
+    );
+
+    const result = await findExistingGist("fake-token");
+
+    expect(result).toBe("gist-first-ccmax");
   });
 });

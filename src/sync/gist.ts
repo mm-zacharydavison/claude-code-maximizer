@@ -90,6 +90,39 @@ export async function getGitHubToken(): Promise<string | null> {
 }
 
 /**
+ * Searches user's gists for an existing ccmax-sync.json file
+ */
+export async function findExistingGist(token: string): Promise<string | null> {
+  try {
+    // Fetch user's gists (paginated, check first 100)
+    const response = await fetch("https://api.github.com/gists?per_page=100", {
+      headers: {
+        Authorization: `token ${token}`,
+        "User-Agent": "ccmax",
+      },
+    });
+
+    if (!response.ok) {
+      logError("sync:findExistingGist", new Error(`GitHub API error: ${response.status}`));
+      return null;
+    }
+
+    const gists = await response.json() as Array<{ id: string; files: Record<string, unknown> }>;
+
+    for (const gist of gists) {
+      if (gist.files && GIST_FILENAME in gist.files) {
+        return gist.id;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    logError("sync:findExistingGist", error);
+    return null;
+  }
+}
+
+/**
  * Creates a new gist for sync
  */
 export async function createGist(token: string): Promise<string | null> {
@@ -464,6 +497,7 @@ export async function setupSync(existingGistId?: string): Promise<{ success: boo
   }
 
   let gistId: string | null = existingGistId || null;
+  let usingExisting = false;
 
   if (gistId) {
     // Verify the gist exists and is accessible
@@ -471,11 +505,22 @@ export async function setupSync(existingGistId?: string): Promise<{ success: boo
     if (!data) {
       return { success: false, message: "Could not access the specified gist. Check the ID and permissions." };
     }
+    usingExisting = true;
   } else {
-    // Create a new gist
-    gistId = await createGist(token);
-    if (!gistId) {
-      return { success: false, message: "Failed to create gist." };
+    // Check for existing ccmax-sync.json gist first
+    console.log("Checking for existing sync gist...");
+    gistId = await findExistingGist(token);
+
+    if (gistId) {
+      usingExisting = true;
+      console.log(`Found existing gist: ${gistId}`);
+    } else {
+      // Create a new gist
+      console.log("No existing gist found, creating new one...");
+      gistId = await createGist(token);
+      if (!gistId) {
+        return { success: false, message: "Failed to create gist." };
+      }
     }
   }
 
@@ -483,8 +528,9 @@ export async function setupSync(existingGistId?: string): Promise<{ success: boo
   const machineId = getMachineId();
   updateSyncConfig({ gist_id: gistId });
 
+  const action = usingExisting ? "Using existing gist" : "Created new gist";
   return {
     success: true,
-    message: `Sync configured!\n  Gist ID: ${gistId}\n  Machine ID: ${machineId}\n\nRun 'ccmax sync push' to upload your data.`,
+    message: `Sync configured!\n  ${action}: ${gistId}\n  Machine ID: ${machineId}\n\nRun 'ccmax sync push' to upload your data.`,
   };
 }

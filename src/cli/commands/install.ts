@@ -7,6 +7,8 @@ import { getDb } from "../../db/client.ts";
 import { DATA_DIR, BIN_DIR, INSTALLED_BINARY_PATH } from "../../utils/paths.ts";
 import { mkdirSync, existsSync, copyFileSync, chmodSync } from "fs";
 import { dirname } from "path";
+import { installService, startService, enableService, getServiceTypeName } from "../../daemon/service.ts";
+import { isPlatformSupported } from "../../utils/platform.ts";
 
 async function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -203,6 +205,48 @@ export async function install(args: string[]): Promise<void> {
     console.log("✓");
   }
 
+  // Install and start daemon service (persists across reboots)
+  let daemonStarted = false;
+  if (isPlatformSupported()) {
+    const serviceName = getServiceTypeName();
+    if (!isQuiet) {
+      process.stdout.write(`Installing ${serviceName} service... `);
+    }
+    const serviceResult = installService();
+    if (serviceResult.success) {
+      if (!isQuiet) {
+        console.log("✓");
+      }
+
+      // Enable service (for systemd, launchd auto-enables on load)
+      enableService();
+
+      // Start the service
+      if (!isQuiet) {
+        process.stdout.write(`Starting daemon... `);
+      }
+      const startResult = startService();
+      if (startResult.success) {
+        daemonStarted = true;
+        if (!isQuiet) {
+          console.log("✓");
+        }
+      } else {
+        if (!isQuiet) {
+          console.log("✗ (non-fatal)");
+          console.log(`  Note: Daemon failed to start: ${startResult.error}`);
+          console.log(`  You can start it manually with: ccmax daemon start`);
+        }
+      }
+    } else {
+      if (!isQuiet) {
+        console.log("✗ (non-fatal)");
+        console.log(`  Note: Service installation failed: ${serviceResult.error}`);
+        console.log(`  You can install it manually with: ccmax daemon start --service`);
+      }
+    }
+  }
+
   // Mark as installed
   markInstalled();
 
@@ -213,12 +257,15 @@ export async function install(args: string[]): Promise<void> {
     console.log("═══════════════════════════════════════════════");
     console.log();
     console.log(`Binary installed to: ${INSTALLED_BINARY_PATH}`);
+    if (daemonStarted) {
+      console.log(`Daemon: Running (will persist across reboots)`);
+    }
     console.log();
     console.log(`The tool will now track your usage patterns for ${learningPeriod} days.`);
     console.log();
     console.log("After the learning period, run:");
-    console.log("  ccmax analyze       - See your usage patterns");
-    console.log("  ccmax daemon start  - Enable automatic notifications");
+    console.log("  ccmax analyze  - See your usage patterns");
+    console.log("  ccmax stats    - View usage over time");
     console.log();
     console.log("Check progress anytime with: ccmax status");
 

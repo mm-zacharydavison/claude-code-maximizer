@@ -229,6 +229,34 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Kill orphaned script and claude processes associated with a temp file.
+ * On macOS, when bash exits, script and claude become orphaned (re-parented to launchd).
+ * We find them by searching for the script process using our unique temp file path.
+ */
+function killOrphanedProcesses(tmpFile: string): void {
+  if (!isMacOS()) return;
+
+  try {
+    // Find the script process by looking for our unique temp file in its command line
+    // pgrep -f searches the full command line
+    const pgrepResult = spawnSync(["pgrep", "-f", tmpFile]);
+    if (pgrepResult.exitCode === 0) {
+      const pids = pgrepResult.stdout.toString().trim().split("\n");
+      for (const pid of pids) {
+        if (pid) {
+          // First kill any children of this process (claude)
+          spawnSync(["pkill", "-P", pid]);
+          // Then kill the process itself (script)
+          spawnSync(["kill", "-TERM", pid]);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors - processes may already be dead
+  }
+}
+
 async function fetchClaudeUsage(claudePath: string, _timeout: number): Promise<ClaudeUsage | null> {
   const tmpFile = `/tmp/ccmax-usage-${Date.now()}.txt`;
   const scriptFile = `/tmp/ccmax-script-${Date.now()}.sh`;
@@ -287,14 +315,29 @@ async function fetchClaudeUsage(claudePath: string, _timeout: number): Promise<C
       }
     }
 
-    // Give filesystem time to flush
-    await sleep(300);
-
-    // Read the output file
+    // After bash exits, script/claude are still running and processing /exit
+    // Wait for them to finish naturally (poll for output file to have content)
     let output = "";
-    if (existsSync(tmpFile)) {
-      output = readFileSync(tmpFile, "utf-8");
+    const maxWaitMs = 5000;
+    const pollIntervalMs = 200;
+    let waited = 0;
+
+    while (waited < maxWaitMs) {
+      await sleep(pollIntervalMs);
+      waited += pollIntervalMs;
+
+      if (existsSync(tmpFile)) {
+        const content = readFileSync(tmpFile, "utf-8");
+        if (content.includes("% used")) {
+          output = content;
+          break;
+        }
+      }
     }
+
+    // Now clean up any orphaned processes on macOS
+    // (script/claude may still be running if /exit didn't work)
+    killOrphanedProcesses(tmpFile);
 
     // Clean up temp files
     try {

@@ -257,14 +257,10 @@ function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
     const bar = createUsageBar(claudeUsage);
     const usageStr = claudeUsage > 0 ? `${claudeUsage.toFixed(0).padStart(3)}%` : "  -";
 
-    console.log(
-      `  ${startTime} - ${endTime}  ${bar} ${usageStr} used │ ${window.active_minutes} min active`
-    );
+    console.log(`  ${startTime} - ${endTime}  ${bar} ${usageStr} used`);
   }
 
   // Calculate averages
-  const avgActiveMin =
-    windows.reduce((sum, w) => sum + w.active_minutes, 0) / windows.length;
   const windowsWithUsage = windows.filter((w) => w.claude_usage_pct > 0);
   const avgUsage =
     windowsWithUsage.length > 0
@@ -273,9 +269,7 @@ function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
 
   console.log("─".repeat(60));
   if (avgUsage > 0) {
-    console.log(`  Average: ${avgUsage.toFixed(0)}% used │ ${avgActiveMin.toFixed(0)} min active`);
-  } else {
-    console.log(`  Average: ${avgActiveMin.toFixed(0)} min active`);
+    console.log(`  Average: ${avgUsage.toFixed(0)}% used`);
   }
   console.log();
 }
@@ -316,14 +310,10 @@ function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): 
     const bar = createUsageBar(claudeUsage);
     const usageStr = claudeUsage > 0 ? `${claudeUsage.toFixed(0).padStart(3)}%` : "  -";
 
-    console.log(
-      `  ${startTime} - ${endTime}  ${bar} ${usageStr} used │ ${window.active_minutes} min active`
-    );
+    console.log(`  ${startTime} - ${endTime}  ${bar} ${usageStr} used`);
   }
 
   // Calculate averages
-  const avgActiveMin =
-    windows.reduce((sum, w) => sum + w.active_minutes, 0) / windows.length;
   const windowsWithUsage = windows.filter((w) => w.claude_usage_pct > 0);
   const avgUsage =
     windowsWithUsage.length > 0
@@ -332,9 +322,7 @@ function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): 
 
   console.log("─".repeat(60));
   if (avgUsage > 0) {
-    console.log(`  Average: ${avgUsage.toFixed(0)}% used │ ${avgActiveMin.toFixed(0)} min active`);
-  } else {
-    console.log(`  Average: ${avgActiveMin.toFixed(0)} min active`);
+    console.log(`  Average: ${avgUsage.toFixed(0)}% used`);
   }
   console.log();
 }

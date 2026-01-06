@@ -178,8 +178,8 @@ describe("ccmax stats", () => {
     const result = await runCcmax(["stats"], env.getEnv());
 
     expect(result.stdout).toContain("Windows");
-    expect(result.stdout).toMatch(/180 min active/);
-    expect(result.stdout).toMatch(/120 min active/);
+    expect(result.stdout).toMatch(/60%.*used/);
+    expect(result.stdout).toMatch(/40%.*used/);
     expect(result.exitCode).toBe(0);
   });
 
@@ -310,8 +310,8 @@ describe("ccmax stats", () => {
 
       const result = await runCcmax(["stats", "--days-ago", "1"], env.getEnv());
 
-      expect(result.stdout).toContain("200 min active");
-      expect(result.stdout).not.toContain("100 min active");
+      expect(result.stdout).toMatch(/65%.*used/);
+      expect(result.stdout).not.toMatch(/30%.*used/);
       expect(result.exitCode).toBe(0);
     });
 

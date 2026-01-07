@@ -1,10 +1,28 @@
 import { isHookInstalled } from "../../hook/install.ts";
-import { loadConfig } from "../../config/index.ts";
+import { loadConfig, DAY_LABELS, type DayOfWeek } from "../../config/index.ts";
 import { loadState, isInstalled, getDaysSinceInstall } from "../../config/state.ts";
 import { getHourlyUsageCount, getWindowCount, getCurrentWindow } from "../../db/queries.ts";
 import { dbExists } from "../../db/client.ts";
 import { fromISO, formatTime, getWindowEnd } from "../../utils/time.ts";
 import { getCachedUsage, formatUsage } from "../../usage/index.ts";
+
+function formatDayListShort(days: DayOfWeek[]): string {
+  if (days.length === 0) return "None";
+  if (days.length === 7) return "Every day";
+  if (
+    days.length === 5 &&
+    days.includes("monday") &&
+    days.includes("tuesday") &&
+    days.includes("wednesday") &&
+    days.includes("thursday") &&
+    days.includes("friday") &&
+    !days.includes("saturday") &&
+    !days.includes("sunday")
+  ) {
+    return "Mon-Fri";
+  }
+  return days.map((d) => DAY_LABELS[d].slice(0, 3)).join(", ");
+}
 
 export async function status(_args: string[]): Promise<void> {
   console.log();
@@ -36,6 +54,32 @@ export async function status(_args: string[]): Promise<void> {
   console.log(`  Learning period:  ${config.learning_period_days} days`);
   console.log(`  Auto-adjust:      ${config.auto_adjust_enabled ? "Enabled" : "Disabled"}`);
   console.log(`  Notifications:    ${config.notifications_enabled ? "Enabled" : "Disabled"}`);
+
+  // Working hours configuration
+  const { working_hours } = config;
+  if (working_hours.enabled) {
+    console.log();
+    console.log("Working Hours:");
+    console.log(`  Work days:        ${formatDayListShort(working_hours.work_days)}`);
+
+    // Show sample hours (first work day's hours)
+    const firstDay = working_hours.work_days[0];
+    const sampleHours = firstDay ? working_hours.hours[firstDay] : null;
+    if (sampleHours) {
+      // Check if all days have same hours
+      const allSame = working_hours.work_days.every((d) => {
+        const h = working_hours.hours[d];
+        return h?.start === sampleHours.start && h?.end === sampleHours.end;
+      });
+
+      if (allSame) {
+        console.log(`  Hours:            ${sampleHours.start} - ${sampleHours.end}`);
+      } else {
+        console.log(`  Hours:            (varies by day - run 'ccmax configure show')`);
+      }
+    }
+    console.log(`  Usage blending:   ${working_hours.auto_adjust_from_usage ? "Enabled" : "Disabled"}`);
+  }
 
   // Learning progress
   const daysSinceInstall = getDaysSinceInstall();

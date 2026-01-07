@@ -13,6 +13,20 @@ export interface OptimalStartTimes {
   sunday: string | null;
 }
 
+export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+
+export interface WorkingHoursDay {
+  start: string; // HH:MM format
+  end: string;   // HH:MM format
+}
+
+export interface WorkingHoursConfig {
+  enabled: boolean;
+  work_days: DayOfWeek[];
+  hours: Partial<Record<DayOfWeek, WorkingHoursDay>>;
+  auto_adjust_from_usage: boolean; // blend with usage data analysis
+}
+
 export interface SyncConfig {
   gist_id: string | null;
   last_sync: string | null;
@@ -27,6 +41,7 @@ export interface Config {
   notification_advance_minutes: number;
   auto_adjust_enabled: boolean;
   sync: SyncConfig;
+  working_hours: WorkingHoursConfig;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -48,6 +63,12 @@ const DEFAULT_CONFIG: Config = {
     last_sync: null,
     last_sync_hash: null,
     machine_id: null,
+  },
+  working_hours: {
+    enabled: false,
+    work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    hours: {},
+    auto_adjust_from_usage: true,
   },
 };
 
@@ -110,6 +131,44 @@ function sanitizeConfig(parsed: Partial<Config>): Partial<Config> {
       sync.machine_id = parsed.sync.machine_id;
     }
     sanitized.sync = { ...DEFAULT_CONFIG.sync, ...sync };
+  }
+
+  // Validate working_hours config
+  if (parsed.working_hours && typeof parsed.working_hours === "object") {
+    const validDays: DayOfWeek[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    const workingHours: WorkingHoursConfig = { ...DEFAULT_CONFIG.working_hours };
+
+    if (typeof parsed.working_hours.enabled === "boolean") {
+      workingHours.enabled = parsed.working_hours.enabled;
+    }
+
+    if (typeof parsed.working_hours.auto_adjust_from_usage === "boolean") {
+      workingHours.auto_adjust_from_usage = parsed.working_hours.auto_adjust_from_usage;
+    }
+
+    if (Array.isArray(parsed.working_hours.work_days)) {
+      const validWorkDays = parsed.working_hours.work_days.filter(
+        (d): d is DayOfWeek => validDays.includes(d as DayOfWeek)
+      );
+      if (validWorkDays.length > 0) {
+        workingHours.work_days = validWorkDays;
+      }
+    }
+
+    if (parsed.working_hours.hours && typeof parsed.working_hours.hours === "object") {
+      const hours: Partial<Record<DayOfWeek, WorkingHoursDay>> = {};
+      for (const day of validDays) {
+        const dayHours = parsed.working_hours.hours[day];
+        if (dayHours && typeof dayHours === "object") {
+          if (isValidTimeString(dayHours.start) && isValidTimeString(dayHours.end)) {
+            hours[day] = { start: dayHours.start, end: dayHours.end };
+          }
+        }
+      }
+      workingHours.hours = hours;
+    }
+
+    sanitized.working_hours = workingHours;
   }
 
   return sanitized;
@@ -180,3 +239,31 @@ export function isSyncConfigured(): boolean {
   const config = loadConfig();
   return config.sync.gist_id !== null;
 }
+
+export function getWorkingHoursConfig(): WorkingHoursConfig {
+  const config = loadConfig();
+  return config.working_hours;
+}
+
+export function updateWorkingHoursConfig(updates: Partial<WorkingHoursConfig>): void {
+  const config = loadConfig();
+  config.working_hours = { ...config.working_hours, ...updates };
+  saveConfig(config);
+}
+
+export function isWorkingHoursConfigured(): boolean {
+  const config = loadConfig();
+  return config.working_hours.enabled && config.working_hours.work_days.length > 0;
+}
+
+export const ALL_DAYS: DayOfWeek[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+export const DAY_LABELS: Record<DayOfWeek, string> = {
+  monday: "Monday",
+  tuesday: "Tuesday",
+  wednesday: "Wednesday",
+  thursday: "Thursday",
+  friday: "Friday",
+  saturday: "Saturday",
+  sunday: "Sunday",
+};

@@ -153,6 +153,12 @@ function resetConfig(): void {
       last_sync_hash: null,
       machine_id: null,
     },
+    working_hours: {
+      enabled: false,
+      work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      hours: {},
+      auto_adjust_from_usage: true,
+    },
   };
 
   saveConfig(defaultConfig);

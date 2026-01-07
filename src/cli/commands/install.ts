@@ -1,7 +1,7 @@
 import * as readline from "readline";
 import { execSync } from "child_process";
 import { installHook } from "../../hook/install.ts";
-import { loadConfig, saveConfig, isSyncConfigured } from "../../config/index.ts";
+import { loadConfig, saveConfig, isSyncConfigured, isWorkingHoursConfigured } from "../../config/index.ts";
 import { setupSync } from "../../sync/gist.ts";
 import { markInstalled, isInstalled } from "../../config/state.ts";
 import { getDb } from "../../db/client.ts";
@@ -10,6 +10,7 @@ import { mkdirSync, existsSync, copyFileSync, chmodSync } from "fs";
 import { dirname } from "path";
 import { installService, startService, enableService, getServiceTypeName } from "../../daemon/service.ts";
 import { isPlatformSupported } from "../../utils/platform.ts";
+import { configure } from "./configure.ts";
 
 async function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -23,38 +24,6 @@ async function prompt(question: string): Promise<string> {
       resolve(answer.trim());
     });
   });
-}
-
-async function selectLearningPeriod(): Promise<number> {
-  console.log("\nHow many days would you like to analyze before enabling auto-scheduling?");
-  console.log("  [1] 3 days  (quick start, less accurate)");
-  console.log("  [2] 7 days  (recommended)");
-  console.log("  [3] 14 days (more accurate patterns)");
-  console.log("  [4] Custom");
-  console.log();
-
-  const choice = await prompt("Enter choice [1-4]: ");
-
-  switch (choice) {
-    case "1":
-      return 3;
-    case "2":
-      return 7;
-    case "3":
-      return 14;
-    case "4": {
-      const custom = await prompt("Enter number of days: ");
-      const days = parseInt(custom, 10);
-      if (isNaN(days) || days < 1) {
-        console.log("Invalid input, defaulting to 7 days.");
-        return 7;
-      }
-      return days;
-    }
-    default:
-      console.log("Invalid choice, defaulting to 7 days.");
-      return 7;
-  }
 }
 
 function findSourceDir(): string | null {
@@ -142,11 +111,8 @@ export async function install(args: string[]): Promise<void> {
     }
   }
 
-  // Get learning period (skip if reinstalling to preserve existing config)
-  let learningPeriod = 7;
-  if (!isReinstall && !skipOnboarding && !isQuiet) {
-    learningPeriod = await selectLearningPeriod();
-  }
+  // Learning period defaults to 7 days for auto-detection mode
+  const learningPeriod = 7;
 
   // Build and install binary
   if (!isQuiet) {
@@ -251,6 +217,14 @@ export async function install(args: string[]): Promise<void> {
     }
   }
 
+  // Run working hours configuration for fresh installs
+  let workingHoursConfigured = isWorkingHoursConfigured();
+  if (!isReinstall && !skipOnboarding && !isQuiet && !workingHoursConfigured) {
+    console.log();
+    await configure([]);
+    workingHoursConfigured = isWorkingHoursConfigured();
+  }
+
   // Offer sync setup for fresh installs (skip if already configured or reinstalling)
   let syncConfigured = isSyncConfigured();
   if (!isReinstall && !skipOnboarding && !isQuiet && !syncConfigured) {
@@ -285,17 +259,24 @@ export async function install(args: string[]): Promise<void> {
     if (daemonStarted) {
       console.log(`Daemon: Running (will persist across reboots)`);
     }
+    if (workingHoursConfigured) {
+      console.log(`Working hours: Configured (use 'ccmax configure show' to view)`);
+    }
     if (syncConfigured) {
       console.log(`Sync: Configured (use 'ccmax sync push' to upload data)`);
     }
 
     if (!isReinstall) {
       console.log();
-      console.log(`The tool will now track your usage patterns for ${learningPeriod} days.`);
-      console.log();
-      console.log("After the learning period, run:");
-      console.log("  ccmax analyze  - See your usage patterns");
-      console.log("  ccmax stats    - View usage over time");
+      if (workingHoursConfigured) {
+        console.log("Your working hours are configured. The daemon will notify you at optimal times.");
+      } else {
+        console.log(`The tool will now track your usage patterns for ${learningPeriod} days.`);
+        console.log();
+        console.log("After the learning period, run:");
+        console.log("  ccmax analyze  - See your usage patterns");
+        console.log("  ccmax stats    - View usage over time");
+      }
       console.log();
       console.log("Check progress anytime with: ccmax status");
     }

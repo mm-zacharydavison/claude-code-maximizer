@@ -69,8 +69,17 @@ export async function analyze(args: string[]): Promise<void> {
 
   // Save recommendations if requested
   if (shouldSave) {
-    const optimalTimes: Partial<OptimalStartTimes> = {};
+    const optimalTimes: OptimalStartTimes = {
+      monday: null,
+      tuesday: null,
+      wednesday: null,
+      thursday: null,
+      friday: null,
+      saturday: null,
+      sunday: null,
+    };
 
+    // Only set times for days with actual usage data
     for (const [day, rec] of patterns.recommendations) {
       if (rec.windows.length > 0) {
         const window = rec.windows[0]!;
@@ -79,10 +88,12 @@ export async function analyze(args: string[]): Promise<void> {
           window.startMinute
         );
       }
+      // Days without data remain null (treated as days off)
     }
 
-    updateConfig({ optimal_start_times: { ...config.optimal_start_times, ...optimalTimes } });
+    updateConfig({ optimal_start_times: optimalTimes });
     console.log("Optimal start times saved to config.");
+    console.log("(Days without usage data are treated as days off)");
     console.log();
   } else {
     console.log("To save these recommendations, run: ccmax analyze --save");

@@ -1,4 +1,4 @@
-import { loadConfig, updateConfig, type OptimalStartTimes } from "../config/index.ts";
+import { loadConfig, updateConfig, type OptimalStartTimes, type DayOfWeek } from "../config/index.ts";
 import { getHourlyUsageSince, getBaselineStat, setBaselineStat } from "../db/queries.ts";
 import { dbExists } from "../db/client.ts";
 import { toISO } from "../utils/time.ts";
@@ -93,11 +93,14 @@ function minutesToTime(totalMinutes: number): string {
 
 /**
  * Blends two times using exponential moving average
+ * @param preserveIfNoData - If true, keeps current time when no new data (for manual hours)
+ *                           If false, returns null when no new data (treats as day off)
  */
 function blendTimes(
   currentTime: string | null,
   newTime: string | null,
-  alpha: number = EMA_ALPHA
+  alpha: number = EMA_ALPHA,
+  preserveIfNoData: boolean = false
 ): string | null {
   const current = parseTimeToMinutes(currentTime);
   const newT = parseTimeToMinutes(newTime);
@@ -105,8 +108,10 @@ function blendTimes(
   // If no current time, use new time directly
   if (!current) return newTime;
 
-  // If no new time, keep current
-  if (!newT) return currentTime;
+  // If no new data for this day:
+  // - If preserveIfNoData is true (manual hours configured), keep current time
+  // - Otherwise, treat as day off (clear the optimal time)
+  if (!newT) return preserveIfNoData ? currentTime : null;
 
   // EMA: blended = α * new + (1 - α) * current
   const blendedMinutes = Math.round(alpha * newT.totalMinutes + (1 - alpha) * current.totalMinutes);
@@ -186,6 +191,21 @@ export function runAdaptiveAdjustment(): AdjustmentResult {
     };
   }
 
+  // Skip if manual hours are configured and usage blending is disabled
+  if (config.working_hours.enabled && !config.working_hours.auto_adjust_from_usage) {
+    return {
+      adjusted: false,
+      reason: "Manual working hours configured without usage blending",
+      changes: [],
+      trends: {
+        shiftsDetected: false,
+        direction: "stable",
+        avgShiftMinutes: 0,
+        consistencyTrend: "stable",
+      },
+    };
+  }
+
   if (!dbExists()) {
     return {
       adjusted: false,
@@ -255,12 +275,18 @@ export function runAdaptiveAdjustment(): AdjustmentResult {
     "sunday",
   ];
 
+  // Check if manual working hours are configured
+  const { working_hours } = config;
+  const hasManualHours = working_hours.enabled;
+
   for (const day of days) {
     const currentTime = config.optimal_start_times[day];
     const newRec = newRecommendations.get(day);
     const newTime = newRec ? formatTimeFromHourMinute(newRec.hour, newRec.minute) : null;
 
-    const blendedTime = blendTimes(currentTime, newTime);
+    // If manual hours are configured for this day, preserve them when no usage data
+    const isConfiguredWorkDay = hasManualHours && working_hours.work_days.includes(day as DayOfWeek);
+    const blendedTime = blendTimes(currentTime, newTime, EMA_ALPHA, isConfiguredWorkDay);
 
     // Only record as a change if actually different
     if (blendedTime !== currentTime) {

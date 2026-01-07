@@ -9,6 +9,7 @@ import { analyze } from "./commands/analyze.ts";
 import { adjust } from "./commands/adjust.ts";
 import { daemon } from "./commands/daemon.ts";
 import { config } from "./commands/config.ts";
+import { configure } from "./commands/configure.ts";
 import { exportData } from "./commands/export.ts";
 import { usage } from "./commands/usage.ts";
 import { sync } from "./commands/sync.ts";
@@ -23,6 +24,7 @@ USAGE:
 COMMANDS:
   install       Install the Claude Code hook and set up tracking
   uninstall     Remove the hook and optionally delete data
+  configure     Configure working hours interactively
   status        Show tracking status and learning progress
   usage         Show Claude rate limit usage (--refresh to update)
   stats         Show usage statistics with ASCII graph
@@ -94,6 +96,10 @@ async function main(): Promise<void> {
 
     case "config":
       await config(commandArgs);
+      break;
+
+    case "configure":
+      await configure(commandArgs);
       break;
 
     case "export":

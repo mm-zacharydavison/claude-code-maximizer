@@ -1,7 +1,7 @@
-import { loadConfig, type OptimalStartTimes } from "../config/index.ts";
+import { loadConfig, type DayOfWeek } from "../config/index.ts";
 import { loadState } from "../config/state.ts";
 import { getCurrentWindow } from "../db/queries.ts";
-import { getDayOfWeek, fromISO, diffMinutes } from "../utils/time.ts";
+import { getDayOfWeek, fromISO, diffMinutes, calculateOptimalStartTimes } from "../utils/time.ts";
 import { notifyOptimalTime, notifyWindowEnding } from "./notifier.ts";
 import { safeExecute, logError } from "../utils/errors.ts";
 
@@ -29,13 +29,15 @@ export function checkAndNotify(): void {
     }
 
     const now = new Date();
-    const dayOfWeek = getDayOfWeek(now) as keyof OptimalStartTimes;
-    const optimalTime = config.optimal_start_times[dayOfWeek];
+    const dayOfWeek = getDayOfWeek(now) as DayOfWeek;
 
-    // Check for optimal start time notification
-    if (optimalTime && !appState.current_window_start) {
+    // Calculate all optimal start times for today
+    const optimalTimes = getOptimalTimesForDay(config, dayOfWeek);
+
+    // Check for optimal start time notification (when no window is active)
+    if (optimalTimes.length > 0 && !appState.current_window_start) {
       safeExecute("scheduler:checkOptimalStartTime", () => {
-        checkOptimalStartTime(now, optimalTime);
+        checkOptimalStartTimes(now, optimalTimes);
       });
     }
 
@@ -51,19 +53,43 @@ export function checkAndNotify(): void {
   }
 }
 
-function checkOptimalStartTime(now: Date, optimalTime: string): void {
-  const [hours, minutes] = optimalTime.split(":").map(Number);
-  if (hours === undefined || minutes === undefined) return;
+/**
+ * Get all optimal start times for a given day.
+ * Uses working hours config if enabled, otherwise falls back to legacy optimal_start_times.
+ */
+function getOptimalTimesForDay(config: ReturnType<typeof loadConfig>, dayOfWeek: DayOfWeek): string[] {
+  const workingHours = config.working_hours;
+  const dayHours = workingHours.enabled ? workingHours.hours[dayOfWeek] : null;
 
-  const optimalDate = new Date(now);
-  optimalDate.setHours(hours, minutes, 0, 0);
+  if (dayHours) {
+    // Calculate optimal start times from working hours
+    return calculateOptimalStartTimes(dayHours.start, dayHours.end);
+  }
 
-  // Check if we're within 5 minutes of optimal time
-  const diffMins = diffMinutes(now, optimalDate);
+  // Fallback to legacy single optimal_start_time
+  const legacyTime = config.optimal_start_times[dayOfWeek];
+  return legacyTime ? [legacyTime] : [];
+}
 
-  if (diffMins <= 5 && shouldNotify(state.lastNotificationTime)) {
-    notifyOptimalTime(optimalTime);
-    state.lastNotificationTime = now;
+/**
+ * Check if current time is within 5 minutes of any optimal start time.
+ */
+function checkOptimalStartTimes(now: Date, optimalTimes: string[]): void {
+  for (const optimalTime of optimalTimes) {
+    const [hours, minutes] = optimalTime.split(":").map(Number);
+    if (hours === undefined || minutes === undefined) continue;
+
+    const optimalDate = new Date(now);
+    optimalDate.setHours(hours, minutes, 0, 0);
+
+    // Check if we're within 5 minutes of this optimal time
+    const diffMins = diffMinutes(now, optimalDate);
+
+    if (diffMins <= 5 && shouldNotify(state.lastNotificationTime)) {
+      notifyOptimalTime(optimalTime);
+      state.lastNotificationTime = now;
+      return; // Only notify for the first matching time
+    }
   }
 }
 

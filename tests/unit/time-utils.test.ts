@@ -9,6 +9,9 @@ import {
   diffMinutes,
   getDayOfWeek,
   WINDOW_DURATION_MINUTES,
+  parseTimeToMinutes,
+  minutesToTimeString,
+  calculateOptimalStartTimes,
 } from "../../src/utils/time.ts";
 
 describe("time utils", () => {
@@ -206,6 +209,114 @@ describe("time utils", () => {
   describe("WINDOW_DURATION_MINUTES", () => {
     test("is 300 (5 hours)", () => {
       expect(WINDOW_DURATION_MINUTES).toBe(300);
+    });
+  });
+
+  describe("parseTimeToMinutes", () => {
+    test("parses HH:MM format correctly", () => {
+      expect(parseTimeToMinutes("09:00")).toBe(540);
+      expect(parseTimeToMinutes("00:00")).toBe(0);
+      expect(parseTimeToMinutes("12:30")).toBe(750);
+      expect(parseTimeToMinutes("23:59")).toBe(1439);
+    });
+
+    test("handles single digit hours", () => {
+      expect(parseTimeToMinutes("9:00")).toBe(540);
+    });
+  });
+
+  describe("minutesToTimeString", () => {
+    test("converts minutes to HH:MM format", () => {
+      expect(minutesToTimeString(0)).toBe("00:00");
+      expect(minutesToTimeString(540)).toBe("09:00");
+      expect(minutesToTimeString(750)).toBe("12:30");
+      expect(minutesToTimeString(1439)).toBe("23:59");
+    });
+
+    test("pads single digits", () => {
+      expect(minutesToTimeString(60)).toBe("01:00");
+      expect(minutesToTimeString(65)).toBe("01:05");
+    });
+  });
+
+  describe("calculateOptimalStartTimes", () => {
+    // Note: The new TLA+ algorithm optimizes for:
+    // 1. Valid triggers (no quota overruns)
+    // 2. Maximum bucket count
+    // 3. Maximum minimum slack (safety margin)
+    // Results may differ from simple time-aligned windows.
+
+    test("calculates optimal times for 07:30-16:00 workday", () => {
+      const result = calculateOptimalStartTimes("07:30", "16:00");
+      // 8.5h workday should produce multiple windows
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      // All results should be valid HH:MM format
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("calculates optimal times for 09:00-17:00 workday", () => {
+      const result = calculateOptimalStartTimes("09:00", "17:00");
+      // 8h workday should produce multiple windows
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("calculates optimal times for 08:00-18:00 workday (10h)", () => {
+      const result = calculateOptimalStartTimes("08:00", "18:00");
+      // 10h workday should produce multiple windows
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("calculates optimal times for 06:00-14:00 workday", () => {
+      const result = calculateOptimalStartTimes("06:00", "14:00");
+      // 8h workday should produce multiple windows
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("returns at least one time for short workday (5h)", () => {
+      const result = calculateOptimalStartTimes("09:00", "14:00");
+      // 5h workday may have 1 or 2 windows depending on optimization
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("returns at least one time for very short workday (< 5h)", () => {
+      const result = calculateOptimalStartTimes("09:00", "12:00");
+      // 3h workday may have 1 or 2 windows depending on split
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("handles edge case where work starts/ends at window boundary", () => {
+      const result = calculateOptimalStartTimes("09:00", "19:00");
+      // 10h workday should produce multiple windows
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
+    });
+
+    test("handles very long workday (12h)", () => {
+      const result = calculateOptimalStartTimes("06:00", "18:00");
+      // 12h workday should produce 3+ windows
+      expect(result.length).toBeGreaterThanOrEqual(3);
+      for (const t of result) {
+        expect(t).toMatch(/^\d{2}:\d{2}$/);
+      }
     });
   });
 });

@@ -456,7 +456,7 @@ describe("ccmax stats", () => {
       const result = await runCcmax(["stats"], env.getEnv());
 
       expect(result.stdout).toContain("⌃");
-      expect(result.stdout).toContain("auto-start 09:00");
+      expect(result.stdout).toContain("auto-start (09:00)");
       expect(result.exitCode).toBe(0);
     });
 
@@ -494,16 +494,13 @@ describe("ccmax stats", () => {
       // Should show ▲ at hour 10, not ⌃
       // The markers line should have ▲ but also mention auto-start in legend
       expect(result.stdout).toContain("▲");
-      expect(result.stdout).toContain("auto-start 10:00");
+      expect(result.stdout).toContain("auto-start (10:00)");
       expect(result.exitCode).toBe(0);
 
       // Count occurrences - there should be only one marker at hour 10 (▲, not ⌃)
       const lines = result.cleanStdout.split("\n");
       const markerLine = lines.find(l => l.includes("▲") && !l.includes("="));
       expect(markerLine).toBeDefined();
-      // At hour 10, we should see ▲, not ⌃
-      // Hour 10 is at position: 6 spaces prefix + (10 * 2) = position 26
-      // Check that ⌃ is not at the same position as ▲
     });
 
     test("shows both ⌃ and ▲ when at different hours", async () => {
@@ -527,7 +524,7 @@ describe("ccmax stats", () => {
       // Should show both markers
       expect(result.stdout).toContain("⌃");
       expect(result.stdout).toContain("▲");
-      expect(result.stdout).toContain("auto-start 07:00");
+      expect(result.stdout).toContain("auto-start (07:00)");
       expect(result.stdout).toContain("window start");
       expect(result.exitCode).toBe(0);
     });
@@ -555,8 +552,37 @@ describe("ccmax stats", () => {
 
       // Should show yesterday's auto-start time (08:30), not today's (09:00)
       expect(result.stdout).toContain("⌃");
-      expect(result.stdout).toContain("auto-start 08:30");
-      expect(result.stdout).not.toContain("auto-start 09:00");
+      expect(result.stdout).toContain("auto-start (08:30)");
+      expect(result.stdout).not.toContain("09:00");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("shows multiple auto-start times when working hours configured", async () => {
+      const todayDayOfWeek = DAYS_OF_WEEK[new Date().getDay()];
+      const configWithWorkingHours = {
+        ...DEFAULT_TEST_CONFIG,
+        working_hours: {
+          enabled: true,
+          work_days: [todayDayOfWeek],
+          hours: {
+            [todayDayOfWeek]: { start: "07:30", end: "16:00" },
+          },
+          auto_adjust_from_usage: true,
+        },
+      };
+      await env.writeConfig(configWithWorkingHours);
+      await env.writeState(createInstalledState(3, false));
+
+      testDb(join(env.dataDir, "usage.db")).done();
+
+      const result = await runCcmax(["stats"], env.getEnv());
+
+      // Should show auto-start marker and times (TLA+ algorithm optimizes times based on workday)
+      expect(result.stdout).toContain("⌃");
+      // Verify at least one valid HH:MM time is shown
+      expect(result.stdout).toMatch(/\d{2}:\d{2}/);
+      // Verify auto-start legend is present
+      expect(result.stdout).toContain("auto-start");
       expect(result.exitCode).toBe(0);
     });
   });

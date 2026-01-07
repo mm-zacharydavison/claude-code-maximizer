@@ -37,7 +37,22 @@ describe("ccmax analyze", () => {
   });
 
   test("--force bypasses learning period check", async () => {
-    await env.writeConfig({ ...DEFAULT_TEST_CONFIG, learning_period_days: 7 });
+    await env.writeConfig({
+      ...DEFAULT_TEST_CONFIG,
+      learning_period_days: 7,
+      working_hours: {
+        enabled: true,
+        work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        hours: {
+          monday: { start: "09:00", end: "17:00" },
+          tuesday: { start: "09:00", end: "17:00" },
+          wednesday: { start: "09:00", end: "17:00" },
+          thursday: { start: "09:00", end: "17:00" },
+          friday: { start: "09:00", end: "17:00" },
+        },
+        auto_adjust_from_usage: true,
+      },
+    });
     await env.writeState(createInstalledState(2, false));
 
     const db = testDb(join(env.dataDir, "usage.db"));
@@ -46,13 +61,27 @@ describe("ccmax analyze", () => {
 
     const result = await runCcmax(["analyze", "--force"], env.getEnv());
 
-    expect(result.stdout).toContain("Weekly Usage Patterns");
-    expect(result.stdout).toContain("Recommended Start Times");
+    expect(result.stdout).toContain("Usage Profile");
+    expect(result.stdout).toContain("Optimal Start Times");
     expect(result.exitCode).toBe(0);
   });
 
-  test("shows weekly patterns after learning period", async () => {
-    await env.writeConfig(DEFAULT_TEST_CONFIG);
+  test("shows usage profile after learning period", async () => {
+    await env.writeConfig({
+      ...DEFAULT_TEST_CONFIG,
+      working_hours: {
+        enabled: true,
+        work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        hours: {
+          monday: { start: "09:00", end: "17:00" },
+          tuesday: { start: "09:00", end: "17:00" },
+          wednesday: { start: "09:00", end: "17:00" },
+          thursday: { start: "09:00", end: "17:00" },
+          friday: { start: "09:00", end: "17:00" },
+        },
+        auto_adjust_from_usage: true,
+      },
+    });
     await env.writeState(createInstalledState(14, false));
 
     const db = testDb(join(env.dataDir, "usage.db"));
@@ -61,15 +90,29 @@ describe("ccmax analyze", () => {
 
     const result = await runCcmax(["analyze"], env.getEnv());
 
-    expect(result.stdout).toContain("Weekly Usage Patterns");
-    expect(result.stdout).toContain("Recommended Start Times");
+    expect(result.stdout).toContain("Usage Profile");
+    expect(result.stdout).toContain("Optimal Start Times");
     expect(result.stdout).toMatch(/Monday|Tuesday|Wednesday|Thursday|Friday/);
     expect(result.stdout).toContain("Baseline statistics saved");
     expect(result.exitCode).toBe(0);
   });
 
   test("--save writes optimal times to config", async () => {
-    await env.writeConfig(DEFAULT_TEST_CONFIG);
+    await env.writeConfig({
+      ...DEFAULT_TEST_CONFIG,
+      working_hours: {
+        enabled: true,
+        work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        hours: {
+          monday: { start: "09:00", end: "17:00" },
+          tuesday: { start: "09:00", end: "17:00" },
+          wednesday: { start: "09:00", end: "17:00" },
+          thursday: { start: "09:00", end: "17:00" },
+          friday: { start: "09:00", end: "17:00" },
+        },
+        auto_adjust_from_usage: true,
+      },
+    });
     await env.writeState(createInstalledState(14, false));
 
     const db = testDb(join(env.dataDir, "usage.db"));
@@ -92,8 +135,22 @@ describe("ccmax analyze", () => {
     expect(hasWeekdayTime).toBe(true);
   });
 
-  test("shows confidence scores based on data consistency", async () => {
-    await env.writeConfig(DEFAULT_TEST_CONFIG);
+  test("shows optimization metrics (buckets and slack)", async () => {
+    await env.writeConfig({
+      ...DEFAULT_TEST_CONFIG,
+      working_hours: {
+        enabled: true,
+        work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        hours: {
+          monday: { start: "09:00", end: "17:00" },
+          tuesday: { start: "09:00", end: "17:00" },
+          wednesday: { start: "09:00", end: "17:00" },
+          thursday: { start: "09:00", end: "17:00" },
+          friday: { start: "09:00", end: "17:00" },
+        },
+        auto_adjust_from_usage: true,
+      },
+    });
     await env.writeState(createInstalledState(14, false));
 
     const db = testDb(join(env.dataDir, "usage.db"));
@@ -102,12 +159,28 @@ describe("ccmax analyze", () => {
 
     const result = await runCcmax(["analyze"], env.getEnv());
 
-    expect(result.stdout).toMatch(/\d+% confidence/);
+    // TLA+ algorithm shows buckets and slack instead of confidence
+    expect(result.stdout).toMatch(/\d+ buckets/);
+    expect(result.stdout).toMatch(/\d+% slack/);
     expect(result.exitCode).toBe(0);
   });
 
   test("calculates baseline stats on first analysis after learning", async () => {
-    await env.writeConfig(DEFAULT_TEST_CONFIG);
+    await env.writeConfig({
+      ...DEFAULT_TEST_CONFIG,
+      working_hours: {
+        enabled: true,
+        work_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        hours: {
+          monday: { start: "09:00", end: "17:00" },
+          tuesday: { start: "09:00", end: "17:00" },
+          wednesday: { start: "09:00", end: "17:00" },
+          thursday: { start: "09:00", end: "17:00" },
+          friday: { start: "09:00", end: "17:00" },
+        },
+        auto_adjust_from_usage: true,
+      },
+    });
     await env.writeState(createInstalledState(8, false));
 
     const db = testDb(join(env.dataDir, "usage.db"));

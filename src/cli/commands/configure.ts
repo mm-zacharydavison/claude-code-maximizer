@@ -10,6 +10,7 @@ import {
 } from "../../config/index.ts";
 import { isInstalled } from "../../config/state.ts";
 import { isValidTimeString } from "../../utils/errors.ts";
+import { calculateOptimalStartTimes } from "../../utils/time.ts";
 
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "17:00";
@@ -135,12 +136,14 @@ function applyWorkingHoursToOptimalTimes(config: ReturnType<typeof loadConfig>):
     return;
   }
 
-  // Set optimal_start_times based on configured working hours
+  // Set optimal_start_times based on calculated optimal window times
   for (const day of ALL_DAYS) {
     if (working_hours.work_days.includes(day)) {
       const dayHours = working_hours.hours[day];
       if (dayHours) {
-        config.optimal_start_times[day] = dayHours.start;
+        // Calculate all optimal start times and use the first one
+        const optimalTimes = calculateOptimalStartTimes(dayHours.start, dayHours.end);
+        config.optimal_start_times[day] = optimalTimes[0] ?? dayHours.start;
       }
     } else {
       // Non-work days: clear optimal time

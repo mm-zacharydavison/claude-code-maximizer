@@ -1,6 +1,6 @@
 import { getWindowsInRange, getHourlyMaxUsageInRange, getOptimizedMetrics, getAllBaselineStats } from "../../db/queries.ts";
 import { isInstalled, isLearningComplete } from "../../config/state.ts";
-import { fromISO, formatTime, toISO, startOfDay, formatDate, roundToNearestHour, getDayOfWeek } from "../../utils/time.ts";
+import { fromISO, formatTime, toISO, startOfDay, formatDate, roundToNearestHour, getDayOfWeek, calculateOptimalStartTimes, parseTimeToMinutes } from "../../utils/time.ts";
 import { dbExists } from "../../db/client.ts";
 import { loadConfig, isSyncConfigured, type DayOfWeek } from "../../config/index.ts";
 import { getAggregateWindows, getAggregateHourlyUsage } from "../../sync/gist.ts";
@@ -230,25 +230,40 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
   }
   console.log(hourLabels);
 
-  // Get auto-start hour from config
+  // Calculate auto-start hours from working hours config
   const config = loadConfig();
   const dayOfWeek = getDayOfWeek(dayStart) as DayOfWeek;
-  const optimalStartTime = config.optimal_start_times[dayOfWeek];
-  let autoStartHour: number | null = null;
+  const workingHours = config.working_hours;
+  const dayHours = workingHours.enabled ? workingHours.hours[dayOfWeek] : null;
 
-  if (optimalStartTime) {
-    const [hourStr] = optimalStartTime.split(":");
-    const parsed = parseInt(hourStr!, 10);
-    if (!isNaN(parsed) && parsed >= 0 && parsed < 24) {
-      autoStartHour = parsed;
+  // Get all optimal start times for this day
+  const autoStartHours = new Set<number>();
+  let autoStartTimes: string[] = [];
+
+  if (dayHours) {
+    // Calculate optimal start times from working hours
+    autoStartTimes = calculateOptimalStartTimes(dayHours.start, dayHours.end);
+    for (const time of autoStartTimes) {
+      const hour = Math.floor(parseTimeToMinutes(time) / 60);
+      if (hour >= 0 && hour < 24) {
+        autoStartHours.add(hour);
+      }
+    }
+  } else if (config.optimal_start_times[dayOfWeek]) {
+    // Fallback to legacy single optimal_start_time if no working hours configured
+    const legacyTime = config.optimal_start_times[dayOfWeek]!;
+    autoStartTimes = [legacyTime];
+    const hour = Math.floor(parseTimeToMinutes(legacyTime) / 60);
+    if (hour >= 0 && hour < 24) {
+      autoStartHours.add(hour);
     }
   }
 
   // Markers below x-axis (▲ for window starts, ⌃ for auto-start; ▲ takes precedence)
   const hasWindowMarkers = windows.length > 0;
-  const hasAutoStartMarker = autoStartHour !== null;
+  const hasAutoStartMarkers = autoStartHours.size > 0;
 
-  if (hasWindowMarkers || hasAutoStartMarker) {
+  if (hasWindowMarkers || hasAutoStartMarkers) {
     let markers = "      ";
     for (let h = 0; h < 24; h++) {
       if (windowStartHours.has(h)) {
@@ -256,7 +271,7 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
         const windowIdx = hourToWindowIndex.get(h);
         const color = windowIdx !== undefined ? WINDOW_COLORS[windowIdx % WINDOW_COLORS.length] : COLORS.reset;
         markers += color + "▲" + COLORS.reset + " ";
-      } else if (h === autoStartHour) {
+      } else if (autoStartHours.has(h)) {
         // Auto-start marker
         markers += COLORS.green + "⌃" + COLORS.reset + " ";
       } else {
@@ -270,8 +285,8 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
     if (hasWindowMarkers) {
       legendParts.push("▲ = window start");
     }
-    if (hasAutoStartMarker) {
-      legendParts.push(`⌃ = auto-start ${optimalStartTime}`);
+    if (hasAutoStartMarkers) {
+      legendParts.push(`⌃ = auto-start (${autoStartTimes.join(", ")})`);
     }
     console.log("      " + legendParts.join("  "));
   }

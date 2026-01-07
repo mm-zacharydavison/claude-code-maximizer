@@ -217,6 +217,12 @@ export async function install(args: string[]): Promise<void> {
     }
   }
 
+  // Mark as installed early so configure and other commands work
+  // (skip on reinstall to preserve installed_at timestamp)
+  if (!isReinstall) {
+    markInstalled();
+  }
+
   // Run working hours configuration for fresh installs
   let workingHoursConfigured = isWorkingHoursConfigured();
   if (!isReinstall && !skipOnboarding && !isQuiet && !workingHoursConfigured) {
@@ -242,11 +248,6 @@ export async function install(args: string[]): Promise<void> {
         console.log("  You can set this up later with: ccmax sync setup");
       }
     }
-  }
-
-  // Mark as installed (skip on reinstall to preserve installed_at timestamp)
-  if (!isReinstall) {
-    markInstalled();
   }
 
   if (!isQuiet) {

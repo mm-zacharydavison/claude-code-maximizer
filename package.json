@@ -1,6 +1,6 @@
 {
   "name": "claude-code-maximizer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Optimize Claude Code Max 5-hour window usage",
   "module": "src/cli/index.ts",
   "type": "module",

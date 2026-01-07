@@ -12,14 +12,16 @@ export async function stats(args: string[]): Promise<void> {
 Display usage statistics and rate limit windows.
 
 Options:
-  --days-ago <n>   Show stats from n days ago (default: 0 = today)
-  --local          Show only local machine data (ignore sync)
-  -h, --help       Show this help message
+  --days-ago <n>     Show stats from n days ago (default: 0 = today)
+  --days-ahead <n>   Show stats for n days in the future
+  --local            Show only local machine data (ignore sync)
+  -h, --help         Show this help message
 
 Examples:
-  ccmax stats              Show today's usage
-  ccmax stats --days-ago 1 Show yesterday's usage
-  ccmax stats --local      Show only local data`);
+  ccmax stats                Show today's usage
+  ccmax stats --days-ago 1   Show yesterday's usage
+  ccmax stats --days-ahead 1 Show tomorrow's auto-start times
+  ccmax stats --local        Show only local data`);
     return;
   }
 
@@ -36,16 +38,23 @@ Examples:
   const showLocal = args.includes("--local");
   const showAggregate = isSyncConfigured() && !showLocal;
 
-  // Parse --days-ago flag (e.g., --days-ago 1 or --days-ago=1)
-  let daysAgo = 0;
+  // Parse --days-ago and --days-ahead flags
+  // dayOffset: negative = past, positive = future, 0 = today
+  let dayOffset = 0;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--days-ago" && args[i + 1]) {
-      daysAgo = parseInt(args[i + 1]!, 10);
-      if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
+      const val = parseInt(args[i + 1]!, 10);
+      if (!isNaN(val) && val >= 0) dayOffset = -val;
     } else if (arg.startsWith("--days-ago=")) {
-      daysAgo = parseInt(arg.slice(11), 10);
-      if (isNaN(daysAgo) || daysAgo < 0) daysAgo = 0;
+      const val = parseInt(arg.slice(11), 10);
+      if (!isNaN(val) && val >= 0) dayOffset = -val;
+    } else if (arg === "--days-ahead" && args[i + 1]) {
+      const val = parseInt(args[i + 1]!, 10);
+      if (!isNaN(val) && val >= 0) dayOffset = val;
+    } else if (arg.startsWith("--days-ahead=")) {
+      const val = parseInt(arg.slice(13), 10);
+      if (!isNaN(val) && val >= 0) dayOffset = val;
     }
   }
 
@@ -53,18 +62,18 @@ Examples:
 
   // Calculate date range for the specified day
   const now = new Date();
-  const targetDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+  const targetDate = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
   const dayStart = startOfDay(targetDate);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   // Render the usage graph
-  renderUsageGraph(dayStart, dayEnd, showAggregate, daysAgo);
+  renderUsageGraph(dayStart, dayEnd, showAggregate, dayOffset);
 
   // Render window summary
   if (showAggregate) {
-    renderAggregateWindowSummary(dayStart, dayEnd, daysAgo);
+    renderAggregateWindowSummary(dayStart, dayEnd, dayOffset);
   } else {
-    renderWindowSummary(dayStart, dayEnd, daysAgo);
+    renderWindowSummary(dayStart, dayEnd, dayOffset);
   }
 
   // Render impact stats if optimization has started
@@ -89,13 +98,16 @@ const COLORS = {
 // Colors for alternating windows
 const WINDOW_COLORS = [COLORS.cyan, COLORS.yellow, COLORS.magenta, COLORS.green, COLORS.blue];
 
-function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, daysAgo: number): void {
+function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, dayOffset: number): void {
   // Build title based on which day we're showing
+  // dayOffset: negative = past, positive = future, 0 = today
   let title: string;
-  if (daysAgo === 0) {
+  if (dayOffset === 0) {
     title = "Usage today";
-  } else if (daysAgo === 1) {
+  } else if (dayOffset === -1) {
     title = "Usage yesterday";
+  } else if (dayOffset === 1) {
+    title = "Usage tomorrow";
   } else {
     title = `Usage ${formatDate(dayStart)}`;
   }
@@ -294,16 +306,34 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
   console.log();
 }
 
-function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
+function renderWindowSummary(start: Date, end: Date, dayOffset: number): void {
   const windows = getWindowsInRange(toISO(start), toISO(end));
 
   if (windows.length === 0) {
-    const dayLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `on ${formatDate(start)}`;
+    let dayLabel: string;
+    if (dayOffset === 0) {
+      dayLabel = "today";
+    } else if (dayOffset === -1) {
+      dayLabel = "yesterday";
+    } else if (dayOffset === 1) {
+      dayLabel = "tomorrow";
+    } else {
+      dayLabel = `on ${formatDate(start)}`;
+    }
     console.log(`No windows recorded ${dayLabel}.`);
     return;
   }
 
-  const headerLabel = daysAgo === 0 ? "(today)" : daysAgo === 1 ? "(yesterday)" : `(${formatDate(start)})`;
+  let headerLabel: string;
+  if (dayOffset === 0) {
+    headerLabel = "(today)";
+  } else if (dayOffset === -1) {
+    headerLabel = "(yesterday)";
+  } else if (dayOffset === 1) {
+    headerLabel = "(tomorrow)";
+  } else {
+    headerLabel = `(${formatDate(start)})`;
+  }
   console.log(`Windows ${headerLabel}:`);
   console.log("─".repeat(60));
 
@@ -336,12 +366,12 @@ function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
   console.log();
 }
 
-function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): void {
+function renderAggregateWindowSummary(start: Date, end: Date, dayOffset: number): void {
   const aggregateWindows = getAggregateWindows();
 
   if (!aggregateWindows || aggregateWindows.length === 0) {
     // Fall back to local data if aggregate fetch fails
-    renderWindowSummary(start, end, daysAgo);
+    renderWindowSummary(start, end, dayOffset);
     return;
   }
 
@@ -352,11 +382,20 @@ function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): 
 
   if (windows.length === 0) {
     // Fall back to local data if no aggregate windows for this day
-    renderWindowSummary(start, end, daysAgo);
+    renderWindowSummary(start, end, dayOffset);
     return;
   }
 
-  const headerLabel = daysAgo === 0 ? "(today)" : daysAgo === 1 ? "(yesterday)" : `(${formatDate(start)})`;
+  let headerLabel: string;
+  if (dayOffset === 0) {
+    headerLabel = "(today)";
+  } else if (dayOffset === -1) {
+    headerLabel = "(yesterday)";
+  } else if (dayOffset === 1) {
+    headerLabel = "(tomorrow)";
+  } else {
+    headerLabel = `(${formatDate(start)})`;
+  }
   console.log(`Windows ${headerLabel} ${COLORS.cyan}[all machines]${COLORS.reset}:`);
   console.log("─".repeat(60));
 

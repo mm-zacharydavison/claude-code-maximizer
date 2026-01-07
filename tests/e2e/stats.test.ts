@@ -438,6 +438,159 @@ describe("ccmax stats", () => {
     });
   });
 
+  describe("--days-ahead flag", () => {
+    test("--days-ahead 1 shows tomorrow's title", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      testDb(join(env.dataDir, "usage.db")).done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "1"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage tomorrow");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead=1 format works", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      testDb(join(env.dataDir, "usage.db")).done();
+
+      const result = await runCcmax(["stats", "--days-ahead=1"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage tomorrow");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead 2 shows date in title", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      const twoDaysAhead = db.daysAhead(2);
+      db.done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "2"], env.getEnv());
+
+      // Should show date in YYYY-MM-DD format
+      const year = twoDaysAhead.getFullYear();
+      const month = String(twoDaysAhead.getMonth() + 1).padStart(2, "0");
+      const day = String(twoDaysAhead.getDate()).padStart(2, "0");
+      const expectedDate = `${year}-${month}-${day}`;
+      expect(result.stdout).toContain(`Usage ${expectedDate}`);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead shows correct day's auto-start config", async () => {
+      // Get tomorrow's day of week
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const tomorrowDayOfWeek = DAYS_OF_WEEK[tomorrow.getDay()];
+      const todayDayOfWeek = DAYS_OF_WEEK[new Date().getDay()];
+
+      const configWithAutoStart = {
+        ...DEFAULT_TEST_CONFIG,
+        optimal_start_times: {
+          ...DEFAULT_TEST_CONFIG.optimal_start_times,
+          [tomorrowDayOfWeek]: "10:30",
+          [todayDayOfWeek]: "09:00",
+        },
+      };
+      await env.writeConfig(configWithAutoStart);
+      await env.writeState(createInstalledState(3, false));
+
+      testDb(join(env.dataDir, "usage.db")).done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "1"], env.getEnv());
+
+      // Should show tomorrow's auto-start time (10:30), not today's (09:00)
+      expect(result.stdout).toContain("⌃");
+      expect(result.stdout).toContain("auto-start (10:30)");
+      expect(result.stdout).not.toContain("09:00");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead shows empty graph (no future data exists)", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 80)  // Today's data
+        .done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "1"], env.getEnv());
+      const graph = extractGraphBox(result.cleanStdout);
+
+      // Graph should be empty (no data for tomorrow)
+      const expectedGraph = `\
+     ┌────────────────────────────────────────────────┐
+100% │                                                │
+ 80% │                                                │
+ 60% │                                                │
+ 40% │                                                │
+ 20% │                                                │
+  0% │                                                │
+     └────────────────────────────────────────────────┘`;
+
+      expect(graph).toBe(expectedGraph);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead shows no windows message for tomorrow", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(7, true));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.window("10:00", "15:00", { active: 100, usage: 30 })  // Today only
+        .done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "1"], env.getEnv());
+
+      expect(result.stdout).toMatch(/no windows recorded tomorrow/i);
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("invalid --days-ahead value defaults to today", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 50)
+        .done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "invalid"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage today");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("negative --days-ahead value defaults to today", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(10, 50)
+        .done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "-1"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage today");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ahead combined with --local works", async () => {
+      await env.writeConfig(DEFAULT_TEST_CONFIG);
+      await env.writeState(createInstalledState(3, false));
+
+      testDb(join(env.dataDir, "usage.db")).done();
+
+      const result = await runCcmax(["stats", "--days-ahead", "1", "--local"], env.getEnv());
+
+      expect(result.stdout).toContain("Usage tomorrow");
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("auto-start marker (⌃)", () => {
     test("shows ⌃ marker when optimal_start_time is configured for today", async () => {
       const todayDayOfWeek = DAYS_OF_WEEK[new Date().getDay()];

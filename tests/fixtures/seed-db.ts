@@ -46,6 +46,20 @@ export class TestDbBuilder {
     return d;
   }
 
+  /** Get tomorrow's date (midnight) */
+  get tomorrow(): Date {
+    const d = new Date(this._today);
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+
+  /** Get a date N days ahead (midnight) */
+  daysAhead(n: number): Date {
+    const d = new Date(this._today);
+    d.setDate(d.getDate() + n);
+    return d;
+  }
+
   /**
    * Insert hourly usage record.
    * @param hour - Hour of day (0-23)

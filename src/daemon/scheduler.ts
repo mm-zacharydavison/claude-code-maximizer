@@ -2,7 +2,8 @@ import { loadConfig, type DayOfWeek } from "../config/index.ts";
 import { loadState } from "../config/state.ts";
 import { getCurrentWindow } from "../db/queries.ts";
 import { getDayOfWeek, fromISO, diffMinutes, calculateOptimalStartTimes } from "../utils/time.ts";
-import { notifyOptimalTime, notifyWindowEnding } from "./notifier.ts";
+import { notifyWindowEnding } from "./notifier.ts";
+import { spawnClaudeSession } from "./autostart.ts";
 import { safeExecute, logError } from "../utils/errors.ts";
 
 export interface SchedulerState {
@@ -73,6 +74,7 @@ function getOptimalTimesForDay(config: ReturnType<typeof loadConfig>, dayOfWeek:
 
 /**
  * Check if current time is within 5 minutes of any optimal start time.
+ * If so, spawn a Claude session to start the usage window.
  */
 function checkOptimalStartTimes(now: Date, optimalTimes: string[]): void {
   for (const optimalTime of optimalTimes) {
@@ -86,9 +88,21 @@ function checkOptimalStartTimes(now: Date, optimalTimes: string[]): void {
     const diffMins = diffMinutes(now, optimalDate);
 
     if (diffMins <= 5 && shouldNotify(state.lastNotificationTime)) {
-      notifyOptimalTime(optimalTime);
+      console.log(`[${now.toISOString()}] Auto-starting Claude session at optimal time ${optimalTime}`);
+      // Fire and forget - don't block the scheduler
+      spawnClaudeSession()
+        .then((result) => {
+          if (result.success) {
+            console.log(`[${new Date().toISOString()}] Auto-start completed: "${result.greeting}"`);
+          } else {
+            console.error(`[${new Date().toISOString()}] Auto-start failed: ${result.message}`);
+          }
+        })
+        .catch((err) => {
+          console.error(`[${new Date().toISOString()}] Auto-start error:`, err);
+        });
       state.lastNotificationTime = now;
-      return; // Only notify for the first matching time
+      return; // Only trigger for the first matching time
     }
   }
 }

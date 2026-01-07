@@ -65,10 +65,17 @@ Events tracked: 847
 
 #### `ccmax stats`
 
-Displays an ASCII graph of your usage over the past 24 hours with color-coded windows:
+Displays an ASCII graph of your usage with color-coded windows:
+
+```bash
+ccmax stats                # Show today's usage
+ccmax stats --days-ago 1   # Show yesterday's usage
+ccmax stats --days-ahead 1 # Show tomorrow's auto-start times
+ccmax stats --local        # Show only local data (ignore sync)
+```
 
 ```
-Usage over past 24 hours
+Usage today
 ══════════════════════════════════════════════════════════════
 
      ┌────────────────────────────────────────────────┐

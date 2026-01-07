@@ -1,0 +1,63 @@
+tests/e2e/analyze.test.ts
+  262f0979b5faffac 42-54,64-65,69-84,93-94,101-115,138-153,162-164,169-183
+src/daemon/scheduler.ts
+  75a725925afe7bda 1,4,32,34-35,37-38,40,56-66,69-71,74-78,80,85-86,91-92
+src/cli/commands/stats.ts
+  75a725925afe7bda 3,233,236-237,239-258,264,266,274,288-289
+src/cli/commands/configure.ts
+  75a725925afe7bda 13,139,144-146
+src/analyzer/trigger-optimizer.ts
+  262f0979b5faffac 1-634
+tests/e2e/adjust.test.ts
+  262f0979b5faffac 112-123,136-137
+src/utils/time.ts
+  262f0979b5faffac 1-5,111-115,118,123-126
+  75a725925afe7bda 90-110,116-117,119-122,127
+src/cli/commands/analyze.ts
+  262f0979b5faffac 6-14,48,59-86,88-90,100-114,116-133,137,141,148,154-170,172-190,210-212
+src/cli/commands/install.ts
+  262f0979b5faffac 220-225
+src/analyzer/adaptive.ts
+  262f0979b5faffac 2,6-11,20,24,27-31,56,58-61,63-65,67-68,70-71,74,78-83,88-99,101,106,109-112,115-122,124,126-129,131-132,134-135,137-138,140-145,147-150,153-155,161,185-186,188,213,218,220-223
+tests/unit/time-utils.test.ts
+  75a725925afe7bda 12-14,214-242,249-250,257-260,266-269,275-278,284-285,287,293-294,296,302-305,311-314,320-321
+  262f0979b5faffac 243-248,251-256,261-265,270-274,279-283,286,288-292,295,297-301,306-310,315-319
+tests/unit/trigger-optimizer.test.ts
+  262f0979b5faffac 1-736
+tests/e2e/stats.test.ts
+  262f0979b5faffac 580,582-585
+  75a725925afe7bda 459,497,527,555-579,581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.29",
+  "base_commit_sha": "2d13416a1589ac74ba792b4862950f643a2e8eeb",
+  "prompts": {
+    "262f0979b5faffac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b1895fe-62dc-4e0a-b43e-307ef6e506cf",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 1806,
+      "total_deletions": 419,
+      "accepted_lines": 1756,
+      "overriden_lines": 0
+    },
+    "75a725925afe7bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fae1da80-2d81-44e2-ab06-6cc29fd23a1e",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 285,
+      "total_deletions": 44,
+      "accepted_lines": 190,
+      "overriden_lines": 0
+    }
+  }
+}

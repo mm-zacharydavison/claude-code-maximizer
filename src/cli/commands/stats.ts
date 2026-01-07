@@ -1,8 +1,8 @@
 import { getWindowsInRange, getHourlyMaxUsageInRange, getOptimizedMetrics, getAllBaselineStats } from "../../db/queries.ts";
 import { isInstalled, isLearningComplete } from "../../config/state.ts";
-import { fromISO, formatTime, toISO, startOfDay, formatDate, roundToNearestHour } from "../../utils/time.ts";
+import { fromISO, formatTime, toISO, startOfDay, formatDate, roundToNearestHour, getDayOfWeek } from "../../utils/time.ts";
 import { dbExists } from "../../db/client.ts";
-import { isSyncConfigured } from "../../config/index.ts";
+import { loadConfig, isSyncConfigured, type DayOfWeek } from "../../config/index.ts";
 import { getAggregateWindows, getAggregateHourlyUsage } from "../../sync/gist.ts";
 
 export async function stats(args: string[]): Promise<void> {
@@ -230,20 +230,50 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
   }
   console.log(hourLabels);
 
-  // Window markers below x-axis
-  if (windows.length > 0) {
-    let windowMarkers = "      ";
+  // Get auto-start hour from config
+  const config = loadConfig();
+  const dayOfWeek = getDayOfWeek(dayStart) as DayOfWeek;
+  const optimalStartTime = config.optimal_start_times[dayOfWeek];
+  let autoStartHour: number | null = null;
+
+  if (optimalStartTime) {
+    const [hourStr] = optimalStartTime.split(":");
+    const parsed = parseInt(hourStr!, 10);
+    if (!isNaN(parsed) && parsed >= 0 && parsed < 24) {
+      autoStartHour = parsed;
+    }
+  }
+
+  // Markers below x-axis (▲ for window starts, ⌃ for auto-start; ▲ takes precedence)
+  const hasWindowMarkers = windows.length > 0;
+  const hasAutoStartMarker = autoStartHour !== null;
+
+  if (hasWindowMarkers || hasAutoStartMarker) {
+    let markers = "      ";
     for (let h = 0; h < 24; h++) {
       if (windowStartHours.has(h)) {
+        // Window start marker takes precedence
         const windowIdx = hourToWindowIndex.get(h);
         const color = windowIdx !== undefined ? WINDOW_COLORS[windowIdx % WINDOW_COLORS.length] : COLORS.reset;
-        windowMarkers += color + "▲" + COLORS.reset + " ";
+        markers += color + "▲" + COLORS.reset + " ";
+      } else if (h === autoStartHour) {
+        // Auto-start marker
+        markers += COLORS.green + "⌃" + COLORS.reset + " ";
       } else {
-        windowMarkers += "  ";
+        markers += "  ";
       }
     }
-    console.log(windowMarkers);
-    console.log("      ▲ = 5h window start (colors show different windows)");
+    console.log(markers);
+
+    // Build legend
+    const legendParts: string[] = [];
+    if (hasWindowMarkers) {
+      legendParts.push("▲ = window start");
+    }
+    if (hasAutoStartMarker) {
+      legendParts.push(`⌃ = auto-start ${optimalStartTime}`);
+    }
+    console.log("      " + legendParts.join("  "));
   }
 
   console.log();

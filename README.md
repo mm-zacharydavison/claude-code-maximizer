@@ -17,66 +17,34 @@ Claude Code Max has 5-hour rolling usage windows. Your window starts when you se
 2. Sends desktop notifications at those optimal times
 3. Continuously adapts recommendations as your patterns change
 4. Shows you how much time you've saved with impact metrics
-
-## Installation
-
-### Prerequisites
-
-- [Bun](https://bun.sh) runtime
-- Linux (macOS support planned)
-- Claude Code with Max subscription
-
-### Install
-
-```bash
-npx claude-code-maximizer install
-```
-
-The installer will:
-- Copy the binary to `~/.local/bin/ccmax`
-- Add usage tracking hooks to `~/.claude/settings.json`
-- Create the data directory at `~/.claude-code-maximizer/`
-- Ask you to choose a learning period (3, 7, or 14 days)
-
-Make sure `~/.local/bin` is in your PATH:
-```bash
-# Add to your ~/.bashrc or ~/.zshrc
-export PATH="$HOME/.local/bin:$PATH"
-```
-
 ## Quick Start
 
 ```bash
 # 1. Install (interactive)
-ccmax install
+npx claude-code-maximizer install
 
-# 2. Use Claude Code normally during learning period
-#    (ccmax tracks your usage in the background)
-
-# 3. Check progress
-ccmax status
-
-# 4. After learning period, analyze and save recommendations
-ccmax analyze --save
-
-# 5. Start the notification daemon
-ccmax daemon start
+# 2. Show usage stats and window triggers.
+ccmax stats
 ```
 
 ## Commands
 
-| Command          | Description                                                |
-|------------------|------------------------------------------------------------|
-| `install`        | Install hooks and set up tracking                          |
-| `uninstall`      | Remove hooks (use `--purge` to delete all data)            |
-| `status`         | Show tracking status and learning progress                 |
-| `usage`          | Show Claude rate limit usage (from Claude CLI)             |
-| `stats`          | Show usage graph with impact metrics                       |
-| `analyze`        | Analyze patterns and show recommendations                  |
-| `adjust`         | Adaptively adjust optimal times based on recent patterns   |
-| `daemon`         | Manage the background notification daemon                  |
-| `config`         | View and modify configuration                              |
-| `export`         | Export usage data to JSON or CSV                           |
+| Command     | Description                                              |
+|-------------|----------------------------------------------------------|
+| `install`   | Install hooks and set up tracking                        |
+| `uninstall` | Remove hooks (use `--purge` to delete all data)          |
+| `status`    | Show tracking status and learning progress               |
+| `usage`     | Show Claude rate limit usage (from Claude CLI)           |
+| `stats`     | Show usage graph with impact metrics                     |
+| `analyze`   | Analyze patterns and show recommendations                |
+| `adjust`    | Adaptively adjust optimal times based on recent patterns |
+| `daemon`    | Manage the background notification daemon                |
+| `config`    | View and modify configuration                            |
+| `configure` | Interactively configure working hours per day            |
+| `sync`      | Sync usage data to GitHub Gist for multi-machine use     |
+| `clear`     | Clear usage data (use `--all` to include config)         |
+| `export`    | Export usage data to JSON or CSV                         |
+| `help`      | Show command reference                                   |
 
 ### Command Details
 
@@ -177,13 +145,19 @@ ccmax config reset                        # Reset to defaults
 
 Configuration options:
 
-| Option                       | Default | Description                              |
-|------------------------------|---------|------------------------------------------|
-| `learning_period_days`       | 7       | Days to learn patterns before optimizing |
-| `notifications_enabled`      | true    | Enable desktop notifications             |
-| `notification_advance_minutes` | 5     | Minutes before optimal time to notify    |
-| `auto_adjust_enabled`        | true    | Enable automatic pattern adjustment      |
-| `optimal_start_times.*`      | null    | Optimal start time per day (HH:MM)       |
+| Option                             | Default   | Description                                  |
+|------------------------------------|-----------|----------------------------------------------|
+| `learning_period_days`             | 7         | Days to learn patterns before optimizing     |
+| `notifications_enabled`            | true      | Enable desktop notifications                 |
+| `notification_advance_minutes`     | 5         | Minutes before optimal time to notify        |
+| `auto_adjust_enabled`              | true      | Enable automatic pattern adjustment          |
+| `optimal_start_times.*`            | null      | Optimal start time per day (HH:MM)           |
+| `working_hours.enabled`            | false     | Enable manual working hours configuration    |
+| `working_hours.work_days`          | Mon-Fri   | Which days you work                          |
+| `working_hours.hours.*`            | {}        | Start/end times per day (HH:MM)              |
+| `working_hours.auto_adjust_from_usage` | true  | Blend usage analysis with manual hours       |
+| `sync.gist_id`                     | null      | GitHub Gist ID for multi-machine sync        |
+| `sync.machine_id`                  | null      | Unique identifier for this machine           |
 
 #### `ccmax export`
 
@@ -252,11 +226,11 @@ All data is stored locally in `~/.claude-code-maximizer/`:
 ### Database Schema
 
 ```sql
--- Raw usage events from hooks
-usage_events (id, timestamp, event_type, tool_name, session_id)
+-- Hourly max usage for graph
+hourly_usage (date_hour, usage_pct, updated_at)
 
 -- 5h usage windows
-usage_windows (id, window_start, window_end, active_minutes, utilization_pct)
+usage_windows (id, window_start, window_end, active_minutes, utilization_pct, claude_usage_pct)
 
 -- Impact tracking metrics
 impact_metrics (id, date, windows_used, windows_predicted, avg_utilization, is_optimized)
@@ -267,9 +241,9 @@ baseline_stats (key, value)
 
 ## Privacy
 
-- **All data stays local** - Nothing is sent to any server
-- **No network requests** - ccmax works entirely offline
-- **Full control** - Export or delete your data anytime
+- **All data stays local by default** - Nothing is sent to any server unless you enable sync
+- **Optional sync** - Multi-machine sync via GitHub Gist is opt-in and uses your own Gist
+- **Full control** - Export or delete your data anytime with `ccmax export` or `ccmax clear`
 
 ## Troubleshooting
 
@@ -348,6 +322,7 @@ src/
 │   ├── optimizer.ts  # Start time optimization
 │   ├── patterns.ts   # Weekly pattern detection
 │   └── adaptive.ts   # Continuous adjustment
+├── sync/             # GitHub Gist sync for multi-machine
 ├── usage/            # Claude CLI usage parsing
 └── utils/            # Shared utilities
 ```

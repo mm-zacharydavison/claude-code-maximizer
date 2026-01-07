@@ -4,6 +4,9 @@
   "description": "Optimize Claude Code Max 5-hour window usage",
   "module": "src/cli/index.ts",
   "type": "module",
+  "files": [
+    "bin/ccmax"
+  ],
   "bin": {
     "ccmax": "./bin/ccmax"
   },

@@ -29,16 +29,7 @@ Claude Code Max has 5-hour rolling usage windows. Your window starts when you se
 ### Install
 
 ```bash
-# Clone and build
-git clone <repo>
-cd claude-code-maximizer
-bun install
-
-# Build the binary (outputs to bin/ccmax)
-bun run build
-
-# Run the installer
-./bin/ccmax install
+npx claude-code-maximizer install
 ```
 
 The installer will:

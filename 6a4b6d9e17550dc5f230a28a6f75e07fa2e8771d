@@ -1,0 +1,57 @@
+README.md
+  1ccc5d764c9fb919 33,42-47,149,154-160,229-230,233,244-246,325
+tests/helpers/test-env.ts
+  ffdf513c1bbff764 120-125
+tests/e2e/stats.test.ts
+  75a725925afe7bda 7-8,440-562
+tests/e2e/configure.test.ts
+  ffdf513c1bbff764 1-206
+src/cli/commands/stats.ts
+  75a725925afe7bda 3,5,233-252,255,258-261,263,266-276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.29",
+  "base_commit_sha": "6a4b6d9e17550dc5f230a28a6f75e07fa2e8771d",
+  "prompts": {
+    "1ccc5d764c9fb919": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "82c70eff-45ae-47d8-b069-030faaa950c5",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 36,
+      "total_deletions": 25,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    },
+    "75a725925afe7bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fae1da80-2d81-44e2-ab06-6cc29fd23a1e",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 189,
+      "total_deletions": 34,
+      "accepted_lines": 173,
+      "overriden_lines": 0
+    },
+    "ffdf513c1bbff764": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "988681e4-69df-4803-803e-ca3cbfd85ac2",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 212,
+      "total_deletions": 21,
+      "accepted_lines": 212,
+      "overriden_lines": 0
+    }
+  }
+}

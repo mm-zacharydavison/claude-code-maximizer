@@ -40,7 +40,10 @@ export function formatTime(date: Date): string {
 }
 
 export function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0]!;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function getDayOfWeek(date: Date): string {
@@ -66,5 +69,16 @@ export function isWithinWindow(
 }
 
 export function getWindowEnd(windowStart: Date): Date {
-  return addHours(windowStart, 5);
+  const rawEnd = addHours(windowStart, 5);
+  return roundToNearestHour(rawEnd);
+}
+
+export function roundToNearestHour(date: Date): Date {
+  const result = new Date(date);
+  // Round to nearest hour (>=30 min rounds up)
+  if (result.getMinutes() >= 30) {
+    result.setHours(result.getHours() + 1);
+  }
+  result.setMinutes(0, 0, 0);
+  return result;
 }

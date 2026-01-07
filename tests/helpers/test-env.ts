@@ -12,6 +12,7 @@ export interface TestEnv {
   writeConfig: (config: object) => Promise<void>;
   writeState: (state: object) => Promise<void>;
   writeClaudeSettings: (settings: object) => Promise<void>;
+  writeSyncCache: (cache: object) => Promise<void>;
   readConfig: () => Promise<object>;
   readState: () => Promise<object>;
   readClaudeSettings: () => Promise<object>;
@@ -55,6 +56,10 @@ export async function createTestEnv(): Promise<TestEnv> {
     await writeFile(join(claudeDir, "settings.json"), JSON.stringify(settings, null, 2));
   };
 
+  const writeSyncCache = async (cache: object) => {
+    await writeFile(join(dataDir, "sync-cache.json"), JSON.stringify(cache, null, 2));
+  };
+
   const readConfig = async () => {
     const path = join(dataDir, "config.json");
     if (!existsSync(path)) return {};
@@ -82,6 +87,7 @@ export async function createTestEnv(): Promise<TestEnv> {
     writeConfig,
     writeState,
     writeClaudeSettings,
+    writeSyncCache,
     readConfig,
     readState,
     readClaudeSettings,

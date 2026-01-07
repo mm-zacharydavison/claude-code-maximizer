@@ -1,7 +1,8 @@
 import * as readline from "readline";
 import { execSync } from "child_process";
-import { installHook, isHookInstalled } from "../../hook/install.ts";
-import { loadConfig, saveConfig } from "../../config/index.ts";
+import { installHook } from "../../hook/install.ts";
+import { loadConfig, saveConfig, isSyncConfigured } from "../../config/index.ts";
+import { setupSync } from "../../sync/gist.ts";
 import { markInstalled, isInstalled } from "../../config/state.ts";
 import { getDb } from "../../db/client.ts";
 import { DATA_DIR, BIN_DIR, INSTALLED_BINARY_PATH } from "../../utils/paths.ts";
@@ -124,25 +125,26 @@ export async function install(args: string[]): Promise<void> {
   const isQuiet = args.includes("--quiet") || args.includes("-q");
   const skipOnboarding = args.includes("--skip-onboarding");
 
-  // Check if already installed
-  if (isInstalled() && isHookInstalled() && existsSync(INSTALLED_BINARY_PATH)) {
-    console.log("ccmax is already installed.");
-    console.log("Run 'ccmax status' to check current status.");
-    return;
-  }
+  // Check if this is a reinstall (state exists with installed_at set)
+  const isReinstall = isInstalled();
 
   if (!isQuiet) {
-    console.log("╔═══════════════════════════════════════════════╗");
-    console.log("║     Welcome to Claude Code Maximizer!         ║");
-    console.log("╚═══════════════════════════════════════════════╝");
-    console.log();
-    console.log("This tool will help you optimize your Claude Code Max");
-    console.log("5-hour rolling windows for maximum productivity.");
+    if (isReinstall) {
+      console.log("Reinstalling ccmax (preserving existing data)...");
+      console.log();
+    } else {
+      console.log("╔═══════════════════════════════════════════════╗");
+      console.log("║     Welcome to Claude Code Maximizer!         ║");
+      console.log("╚═══════════════════════════════════════════════╝");
+      console.log();
+      console.log("This tool will help you optimize your Claude Code Max");
+      console.log("5-hour rolling windows for maximum productivity.");
+    }
   }
 
-  // Get learning period
+  // Get learning period (skip if reinstalling to preserve existing config)
   let learningPeriod = 7;
-  if (!skipOnboarding && !isQuiet) {
+  if (!isReinstall && !skipOnboarding && !isQuiet) {
     learningPeriod = await selectLearningPeriod();
   }
 
@@ -180,12 +182,14 @@ export async function install(args: string[]): Promise<void> {
     console.log("✓");
   }
 
-  // Save config
+  // Save config (preserve existing learning_period_days on reinstall)
   if (!isQuiet) {
     process.stdout.write("Saving configuration... ");
   }
   const config = loadConfig();
-  config.learning_period_days = learningPeriod;
+  if (!isReinstall) {
+    config.learning_period_days = learningPeriod;
+  }
   saveConfig(config);
   if (!isQuiet) {
     console.log("✓");
@@ -247,27 +251,54 @@ export async function install(args: string[]): Promise<void> {
     }
   }
 
-  // Mark as installed
-  markInstalled();
+  // Offer sync setup for fresh installs (skip if already configured or reinstalling)
+  let syncConfigured = isSyncConfigured();
+  if (!isReinstall && !skipOnboarding && !isQuiet && !syncConfigured) {
+    console.log();
+    const setupSyncAnswer = await prompt("Configure GitHub Gist sync? (for multi-machine users) [y/N]: ");
+    if (setupSyncAnswer.toLowerCase() === "y" || setupSyncAnswer.toLowerCase() === "yes") {
+      console.log();
+      console.log("Setting up GitHub Gist sync...");
+      const syncResult = await setupSync();
+      if (syncResult.success) {
+        console.log("✓ " + syncResult.message);
+        syncConfigured = true;
+      } else {
+        console.log("✗ " + syncResult.message);
+        console.log("  You can set this up later with: ccmax sync setup");
+      }
+    }
+  }
+
+  // Mark as installed (skip on reinstall to preserve installed_at timestamp)
+  if (!isReinstall) {
+    markInstalled();
+  }
 
   if (!isQuiet) {
     console.log();
     console.log("═══════════════════════════════════════════════");
-    console.log("Setup complete!");
+    console.log(isReinstall ? "Reinstall complete!" : "Setup complete!");
     console.log("═══════════════════════════════════════════════");
     console.log();
     console.log(`Binary installed to: ${INSTALLED_BINARY_PATH}`);
     if (daemonStarted) {
       console.log(`Daemon: Running (will persist across reboots)`);
     }
-    console.log();
-    console.log(`The tool will now track your usage patterns for ${learningPeriod} days.`);
-    console.log();
-    console.log("After the learning period, run:");
-    console.log("  ccmax analyze  - See your usage patterns");
-    console.log("  ccmax stats    - View usage over time");
-    console.log();
-    console.log("Check progress anytime with: ccmax status");
+    if (syncConfigured) {
+      console.log(`Sync: Configured (use 'ccmax sync push' to upload data)`);
+    }
+
+    if (!isReinstall) {
+      console.log();
+      console.log(`The tool will now track your usage patterns for ${learningPeriod} days.`);
+      console.log();
+      console.log("After the learning period, run:");
+      console.log("  ccmax analyze  - See your usage patterns");
+      console.log("  ccmax stats    - View usage over time");
+      console.log();
+      console.log("Check progress anytime with: ccmax status");
+    }
 
     // Check if bin dir is in PATH (macOS uses /usr/local/bin, Linux uses ~/.local/bin)
     const path = process.env.PATH ?? "";
@@ -279,6 +310,6 @@ export async function install(args: string[]): Promise<void> {
 
     console.log();
   } else {
-    console.log("ccmax installed successfully.");
+    console.log(isReinstall ? "ccmax reinstalled successfully." : "ccmax installed successfully.");
   }
 }

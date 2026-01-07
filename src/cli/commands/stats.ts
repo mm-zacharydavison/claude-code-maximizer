@@ -1,11 +1,28 @@
 import { getWindowsInRange, getHourlyMaxUsageInRange, getOptimizedMetrics, getAllBaselineStats } from "../../db/queries.ts";
 import { isInstalled, isLearningComplete } from "../../config/state.ts";
-import { fromISO, formatTime, toISO, startOfDay, formatDate } from "../../utils/time.ts";
+import { fromISO, formatTime, toISO, startOfDay, formatDate, roundToNearestHour } from "../../utils/time.ts";
 import { dbExists } from "../../db/client.ts";
 import { isSyncConfigured } from "../../config/index.ts";
 import { getAggregateWindows, getAggregateHourlyUsage } from "../../sync/gist.ts";
 
 export async function stats(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`Usage: ccmax stats [options]
+
+Display usage statistics and rate limit windows.
+
+Options:
+  --days-ago <n>   Show stats from n days ago (default: 0 = today)
+  --local          Show only local machine data (ignore sync)
+  -h, --help       Show this help message
+
+Examples:
+  ccmax stats              Show today's usage
+  ccmax stats --days-ago 1 Show yesterday's usage
+  ccmax stats --local      Show only local data`);
+    return;
+  }
+
   if (!isInstalled()) {
     console.log("ccmax is not installed. Run 'ccmax install' first.");
     return;
@@ -108,7 +125,7 @@ function renderUsageGraph(dayStart: Date, dayEnd: Date, useAggregate: boolean, d
   // Get hourly max usage (aggregate from cache or local) for the target day
   let hourlyUsage: { hour: number; max_usage: number }[];
   if (useAggregate) {
-    const aggregate = getAggregateHourlyUsage(dayStartISO);
+    const aggregate = getAggregateHourlyUsage(dayStartISO, dayEndISO);
     // Fall back to local if aggregate returns null or empty
     hourlyUsage = aggregate && aggregate.length > 0 ? aggregate : getHourlyMaxUsageInRange(dayStartISO, dayEndISO);
   } else {
@@ -247,7 +264,7 @@ function renderWindowSummary(start: Date, end: Date, daysAgo: number): void {
 
   for (const window of windows) {
     const windowStart = fromISO(window.window_start);
-    const windowEnd = fromISO(window.window_end);
+    const windowEnd = roundToNearestHour(fromISO(window.window_end));
 
     const startTime = formatTime(windowStart);
     const endTime = formatTime(windowEnd);
@@ -300,7 +317,7 @@ function renderAggregateWindowSummary(start: Date, end: Date, daysAgo: number): 
 
   for (const window of windows) {
     const windowStart = fromISO(window.window_start);
-    const windowEnd = fromISO(window.window_end);
+    const windowEnd = roundToNearestHour(fromISO(window.window_end));
 
     const startTime = formatTime(windowStart);
     const endTime = formatTime(windowEnd);

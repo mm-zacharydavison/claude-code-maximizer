@@ -449,16 +449,22 @@ export interface HourlyUsage {
  * Gets aggregate hourly max usage from all synced machines (from local cache)
  * For the current machine, uses fresh local data instead of stale cache
  */
-export function getAggregateHourlyUsage(since: string): HourlyUsage[] | null {
+export function getAggregateHourlyUsage(since: string, until?: string): HourlyUsage[] | null {
   const syncData = loadSyncCache();
   if (!syncData) return null;
 
   const currentMachineId = getMachineId();
   const localHourlyUsage = getLocalHourlyUsageData();
 
-  // Build since date_hour for filtering
+  // Build date_hour strings for filtering
   const sinceDate = new Date(since);
   const sinceHour = `${sinceDate.getFullYear()}-${String(sinceDate.getMonth() + 1).padStart(2, '0')}-${String(sinceDate.getDate()).padStart(2, '0')}-${String(sinceDate.getHours()).padStart(2, '0')}`;
+
+  let untilHour: string | null = null;
+  if (until) {
+    const untilDate = new Date(until);
+    untilHour = `${untilDate.getFullYear()}-${String(untilDate.getMonth() + 1).padStart(2, '0')}-${String(untilDate.getDate()).padStart(2, '0')}-${String(untilDate.getHours()).padStart(2, '0')}`;
+  }
 
   // Collect hourly usage from all machines
   const hourlyMax = new Map<number, number>();
@@ -467,7 +473,7 @@ export function getAggregateHourlyUsage(since: string): HourlyUsage[] | null {
     const hourlyData = machineId === currentMachineId ? localHourlyUsage : machine.hourly_usage;
     if (hourlyData) {
       for (const h of hourlyData) {
-        if (h.date_hour >= sinceHour) {
+        if (h.date_hour >= sinceHour && (!untilHour || h.date_hour < untilHour)) {
           const hour = parseInt(h.date_hour.slice(-2), 10);
           const current = hourlyMax.get(hour) ?? 0;
           if (h.usage_pct > current) {
@@ -528,9 +534,21 @@ export async function setupSync(existingGistId?: string): Promise<{ success: boo
   const machineId = getMachineId();
   updateSyncConfig({ gist_id: gistId });
 
+  // If using existing gist, pull data immediately
+  let pullMessage = "";
+  if (usingExisting) {
+    const pullResult = await pullFromGist();
+    if (pullResult.success) {
+      pullMessage = `\n  ${pullResult.message}`;
+    }
+  }
+
   const action = usingExisting ? "Using existing gist" : "Created new gist";
+  const nextStep = usingExisting
+    ? "Run 'ccmax sync push' to upload this machine's data."
+    : "Run 'ccmax sync push' to upload your data.";
   return {
     success: true,
-    message: `Sync configured!\n  ${action}: ${gistId}\n  Machine ID: ${machineId}\n\nRun 'ccmax sync push' to upload your data.`,
+    message: `Sync configured!\n  ${action}: ${gistId}\n  Machine ID: ${machineId}${pullMessage}\n\n${nextStep}`,
   };
 }

@@ -267,8 +267,11 @@ describe("ccmax stats", () => {
 
       const result = await runCcmax(["stats", "--days-ago", "2"], env.getEnv());
 
-      // Should show date in YYYY-MM-DD format
-      const expectedDate = twoDaysAgo.toISOString().split("T")[0];
+      // Should show date in YYYY-MM-DD format (local time, not UTC)
+      const year = twoDaysAgo.getFullYear();
+      const month = String(twoDaysAgo.getMonth() + 1).padStart(2, "0");
+      const day = String(twoDaysAgo.getDate()).padStart(2, "0");
+      const expectedDate = `${year}-${month}-${day}`;
       expect(result.stdout).toContain(`Usage ${expectedDate}`);
       expect(result.exitCode).toBe(0);
     });
@@ -368,6 +371,67 @@ describe("ccmax stats", () => {
       const result = await runCcmax(["stats", "--days-ago", "-1"], env.getEnv());
 
       expect(result.stdout).toContain("Usage today");
+      expect(result.exitCode).toBe(0);
+    });
+
+    test("--days-ago with aggregate data shows empty graph for day with no data", async () => {
+      // Configure sync so aggregate path is used
+      const configWithSync = {
+        ...DEFAULT_TEST_CONFIG,
+        sync: {
+          gist_id: "test-gist-id",
+          last_sync: new Date().toISOString(),
+          last_sync_hash: "abc123",
+          machine_id: "test-machine",
+        },
+      };
+      await env.writeConfig(configWithSync);
+      await env.writeState(createInstalledState(3, false));
+
+      // Create local DB with today's data
+      const db = testDb(join(env.dataDir, "usage.db"));
+      db.hourly(12, 85)  // Today at noon, 85% usage
+        .hourly(13, 90)  // Today at 1pm, 90% usage
+        .done();
+
+      // Create sync cache with today's hourly data (simulating synced data)
+      const today = new Date();
+      const todayHour12 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}-12`;
+      const todayHour13 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}-13`;
+
+      await env.writeSyncCache({
+        version: 1,
+        updated_at: new Date().toISOString(),
+        machines: {
+          "test-machine": {
+            machine_id: "test-machine",
+            hostname: "test-host",
+            last_update: new Date().toISOString(),
+            windows: [],
+            hourly_usage: [
+              { date_hour: todayHour12, usage_pct: 85 },
+              { date_hour: todayHour13, usage_pct: 90 },
+            ],
+          },
+        },
+      });
+
+      // Query for 5 days ago (should have no data)
+      const result = await runCcmax(["stats", "--days-ago", "5"], env.getEnv());
+      const graph = extractGraphBox(result.cleanStdout);
+
+      // Graph should be empty - today's data should NOT bleed through
+      const expectedGraph = `\
+     ┌────────────────────────────────────────────────┐
+100% │                                                │
+ 80% │                                                │
+ 60% │                                                │
+ 40% │                                                │
+ 20% │                                                │
+  0% │                                                │
+     └────────────────────────────────────────────────┘`;
+
+      expect(graph).toBe(expectedGraph);
       expect(result.exitCode).toBe(0);
     });
   });

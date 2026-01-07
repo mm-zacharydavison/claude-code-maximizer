@@ -110,6 +110,47 @@ function stripAnsi(str: string): string {
   return str.replace(/\u001b\[[0-9;]*m/g, "").replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+/**
+ * Round reset time string to the next hour.
+ * "12:59pm (Europe/Berlin)" -> "1:00pm (Europe/Berlin)"
+ * "Jan 10, 10:59am (Europe/Berlin)" -> "Jan 10, 11:00am (Europe/Berlin)"
+ */
+function roundResetTimeToHour(resetStr: string): string {
+  // Extract timezone part
+  const tzMatch = resetStr.match(/\s*(\([^)]+\))\s*$/);
+  const timezone = tzMatch?.[1] ?? "";
+  const timePart = resetStr.replace(/\s*\([^)]+\)\s*$/, "").trim();
+
+  // Match time patterns: "12:59pm" or "Jan 10, 10:59am"
+  const timeMatch = timePart.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!timeMatch || !timeMatch[1] || !timeMatch[2] || !timeMatch[3]) {
+    return resetStr; // Can't parse, return as-is
+  }
+
+  let hours = parseInt(timeMatch[1], 10);
+  const minutes = parseInt(timeMatch[2], 10);
+  const ampm = timeMatch[3].toLowerCase();
+
+  // If minutes > 0, round up to next hour
+  if (minutes > 0) {
+    hours += 1;
+    // Handle 12 -> 1 transition and am/pm flip
+    let newAmpm = ampm;
+    if (hours === 12) {
+      newAmpm = ampm === "am" ? "pm" : "am";
+    } else if (hours > 12) {
+      hours = 1;
+    }
+
+    // Reconstruct the time string
+    const newTime = `${hours}:00${newAmpm}`;
+    const newTimePart = timePart.replace(/\d{1,2}:\d{2}\s*(am|pm)/i, newTime);
+    return timezone ? `${newTimePart} ${timezone}` : newTimePart;
+  }
+
+  return resetStr;
+}
+
 function parseResetTime(resetStr: string): string | null {
   // Parse reset time strings like:
   // "6pm (Europe/Berlin)"
@@ -216,7 +257,7 @@ function parseUsageOutput(output: string): ClaudeUsage {
       const resetMatch = line.match(/Resets\s+(.+?)(?:\s*$)/);
       if (resetMatch?.[1]) {
         const resetStr = resetMatch[1].trim();
-        (result[currentSection] as UsageSection).resets_at = resetStr;
+        (result[currentSection] as UsageSection).resets_at = roundResetTimeToHour(resetStr);
         (result[currentSection] as UsageSection).resets_at_iso = parseResetTime(resetStr);
       }
     }

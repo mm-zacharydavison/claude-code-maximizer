@@ -1,6 +1,11 @@
 import { spawn } from "bun";
-import { getWindowsSince, getHourlyUsageSince } from "../db/queries.ts";
-import { getSyncConfig, updateSyncConfig, loadConfig, type OptimalStartTimes } from "../config/index.ts";
+import {
+  getLocalWindowsSince,
+  getLocalHourlyUsageSince,
+  importSyncedHourlyUsage,
+  importSyncedWindows,
+} from "../db/queries.ts";
+import { getSyncConfig, updateSyncConfig, loadConfig, getMachineId, type OptimalStartTimes } from "../config/index.ts";
 import { now } from "../utils/time.ts";
 import { logError } from "../utils/errors.ts";
 import { hostname } from "os";
@@ -231,30 +236,18 @@ export async function updateGist(token: string, gistId: string, data: SyncData):
   }
 }
 
-/**
- * Gets or generates machine ID
- */
-export function getMachineId(): string {
-  const config = getSyncConfig();
-  if (config.machine_id) {
-    return config.machine_id;
-  }
-
-  // Generate a new machine ID based on hostname + random suffix
-  const machineId = `${hostname()}-${Math.random().toString(36).substring(2, 8)}`;
-  updateSyncConfig({ machine_id: machineId });
-  return machineId;
-}
+// Re-export getMachineId for backwards compatibility
+export { getMachineId } from "../config/index.ts";
 
 /**
- * Gets local window data for sync
+ * Gets local window data for sync (excludes synced data from other machines)
  */
 export function getLocalWindowData(): WindowData[] {
-  // Get all windows from past 30 days
+  // Get local-only windows from past 30 days
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const windows = getWindowsSince(thirtyDaysAgo.toISOString());
+  const windows = getLocalWindowsSince(thirtyDaysAgo.toISOString());
 
   return windows.map((w) => ({
     window_start: w.window_start,
@@ -266,13 +259,13 @@ export function getLocalWindowData(): WindowData[] {
 }
 
 /**
- * Gets local hourly usage data for sync (last 48 hours)
+ * Gets local hourly usage data for sync (last 48 hours, excludes synced data)
  */
 export function getLocalHourlyUsageData(): HourlyUsageData[] {
   const twoDaysAgo = new Date();
   twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
 
-  const hourlyData = getHourlyUsageSince(twoDaysAgo.toISOString());
+  const hourlyData = getLocalHourlyUsageSince(twoDaysAgo.toISOString());
 
   return hourlyData.map((h) => ({
     date_hour: h.date_hour,
@@ -370,8 +363,9 @@ export async function pushToGist(): Promise<{ success: boolean; message: string 
 }
 
 /**
- * Pulls data from gist (returns merged data from all machines)
- * Also applies synced optimal_start_times to local config
+ * Pulls data from gist and merges into local database.
+ * - Applies synced optimal_start_times to local config
+ * - Imports usage data from other machines into local DB for learning
  */
 export async function pullFromGist(): Promise<{ success: boolean; message: string; data?: SyncData }> {
   const token = await getGitHubToken();
@@ -395,6 +389,35 @@ export async function pullFromGist(): Promise<{ success: boolean; message: strin
     updateConfig({ optimal_start_times: syncData.optimal_start_times });
   }
 
+  // Import usage data from other machines into local database
+  const currentMachineId = getMachineId();
+  let importedWindows = 0;
+  let importedHourly = 0;
+  let importedMachines = 0;
+
+  for (const [machineId, machineData] of Object.entries(syncData.machines)) {
+    // Skip our own machine's data
+    if (machineId === currentMachineId) {
+      continue;
+    }
+
+    // Import windows
+    if (machineData.windows.length > 0) {
+      importSyncedWindows(machineId, machineData.windows);
+      importedWindows += machineData.windows.length;
+    }
+
+    // Import hourly usage
+    if (machineData.hourly_usage && machineData.hourly_usage.length > 0) {
+      importSyncedHourlyUsage(machineId, machineData.hourly_usage);
+      importedHourly += machineData.hourly_usage.length;
+    }
+
+    if (machineData.windows.length > 0 || (machineData.hourly_usage && machineData.hourly_usage.length > 0)) {
+      importedMachines++;
+    }
+  }
+
   saveSyncCache(syncData);
 
   const machineCount = Object.keys(syncData.machines).length;
@@ -405,9 +428,14 @@ export async function pullFromGist(): Promise<{ success: boolean; message: strin
 
   updateSyncConfig({ last_sync: now() });
 
+  let importMsg = "";
+  if (importedMachines > 0) {
+    importMsg = ` Imported ${importedWindows} windows, ${importedHourly} hourly records from ${importedMachines} other machine(s).`;
+  }
+
   return {
     success: true,
-    message: `Pulled data from ${machineCount} machine(s), ${totalWindows} total windows.`,
+    message: `Pulled data from ${machineCount} machine(s), ${totalWindows} total windows.${importMsg}`,
     data: syncData,
   };
 }

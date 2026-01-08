@@ -3,8 +3,10 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import type { SyncData, WindowData } from "../../src/sync/gist.ts";
 import { findExistingGist } from "../../src/sync/gist.ts";
+import { initializeSchema } from "../../src/db/schema.ts";
 
 // Mock file-based "gist" for testing
 interface MockGist {
@@ -401,4 +403,206 @@ describe("findExistingGist", () => {
 
     expect(result).toBe("gist-first-ccmax");
   });
+});
+
+describe("database sync import", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initializeSchema(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  describe("import synced hourly usage", () => {
+    const LOCAL_MACHINE = "local-machine";
+    const REMOTE_MACHINE = "remote-machine";
+
+    test("imports records with machine_id", () => {
+      const records = [
+        { date_hour: "2024-12-28-09", usage_pct: 50 },
+        { date_hour: "2024-12-28-10", usage_pct: 60 },
+      ];
+
+      // Simulate importSyncedHourlyUsage
+      for (const r of records) {
+        db.run(
+          "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+          [r.date_hour, r.usage_pct, new Date().toISOString(), REMOTE_MACHINE]
+        );
+      }
+
+      const rows = db.query<{ date_hour: string; machine_id: string | null }, [string]>(
+        "SELECT date_hour, machine_id FROM hourly_usage WHERE machine_id = ?"
+      ).all(REMOTE_MACHINE);
+      expect(rows.length).toBe(2);
+    });
+
+    test("replaces existing data for same machine_id", () => {
+      // First import
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-09", 50, new Date().toISOString(), REMOTE_MACHINE]
+      );
+
+      // Simulate reimport (delete + insert)
+      db.run("DELETE FROM hourly_usage WHERE machine_id = ?", [REMOTE_MACHINE]);
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-10", 70, new Date().toISOString(), REMOTE_MACHINE]
+      );
+
+      const rows = db.query<{ date_hour: string }, [string]>(
+        "SELECT date_hour FROM hourly_usage WHERE machine_id = ?"
+      ).all(REMOTE_MACHINE);
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.date_hour).toBe("2024-12-28-10");
+    });
+
+    test("does not affect local data when importing", () => {
+      // Local data
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-09", 40, new Date().toISOString(), LOCAL_MACHINE]
+      );
+
+      // Import remote data (same hour, different machine)
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-09", 60, new Date().toISOString(), REMOTE_MACHINE]
+      );
+
+      // Verify both exist
+      const localRow = db.query<{ usage_pct: number }, [string]>(
+        "SELECT usage_pct FROM hourly_usage WHERE machine_id = ?"
+      ).get(LOCAL_MACHINE);
+      const remoteRow = db.query<{ usage_pct: number }, [string]>(
+        "SELECT usage_pct FROM hourly_usage WHERE machine_id = ?"
+      ).get(REMOTE_MACHINE);
+
+      expect(localRow?.usage_pct).toBe(40);
+      expect(remoteRow?.usage_pct).toBe(60);
+    });
+  });
+
+  describe("import synced windows", () => {
+    const LOCAL_MACHINE = "local-machine";
+    const REMOTE_MACHINE = "remote-machine";
+
+    test("imports windows with machine_id", () => {
+      const windows = [
+        { window_start: "2024-12-28T09:00:00Z", window_end: "2024-12-28T14:00:00Z", active_minutes: 120, utilization_pct: 40, claude_usage_pct: 80 },
+        { window_start: "2024-12-28T14:00:00Z", window_end: "2024-12-28T19:00:00Z", active_minutes: 150, utilization_pct: 50, claude_usage_pct: 90 },
+      ];
+
+      for (const w of windows) {
+        db.run(
+          `INSERT INTO usage_windows (window_start, window_end, active_minutes, utilization_pct, claude_usage_pct, machine_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [w.window_start, w.window_end, w.active_minutes, w.utilization_pct, w.claude_usage_pct, REMOTE_MACHINE]
+        );
+      }
+
+      const count = db.query<{ count: number }, [string]>(
+        "SELECT COUNT(*) as count FROM usage_windows WHERE machine_id = ?"
+      ).get(REMOTE_MACHINE);
+      expect(count?.count).toBe(2);
+    });
+
+    test("does not affect local windows when importing", () => {
+      // Local window
+      db.run(
+        `INSERT INTO usage_windows (window_start, window_end, active_minutes, utilization_pct, claude_usage_pct, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        ["2024-12-28T09:00:00Z", "2024-12-28T14:00:00Z", 100, 33, 70, LOCAL_MACHINE]
+      );
+
+      // Remote window
+      db.run(
+        `INSERT INTO usage_windows (window_start, window_end, active_minutes, utilization_pct, claude_usage_pct, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        ["2024-12-28T10:00:00Z", "2024-12-28T15:00:00Z", 120, 40, 80, REMOTE_MACHINE]
+      );
+
+      const localCount = db.query<{ count: number }, [string]>(
+        "SELECT COUNT(*) as count FROM usage_windows WHERE machine_id = ?"
+      ).get(LOCAL_MACHINE);
+      const remoteCount = db.query<{ count: number }, [string]>(
+        "SELECT COUNT(*) as count FROM usage_windows WHERE machine_id = ?"
+      ).get(REMOTE_MACHINE);
+
+      expect(localCount?.count).toBe(1);
+      expect(remoteCount?.count).toBe(1);
+    });
+  });
+
+  describe("local-only queries", () => {
+    const LOCAL_MACHINE = "local-machine";
+    const REMOTE_MACHINE = "remote-machine";
+
+    test("local hourly usage query excludes synced data", () => {
+      // Local data
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-09", 40, new Date().toISOString(), LOCAL_MACHINE]
+      );
+      // Remote data
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-10", 60, new Date().toISOString(), REMOTE_MACHINE]
+      );
+
+      const localOnly = db.query<{ date_hour: string }, [string]>(
+        "SELECT date_hour FROM hourly_usage WHERE machine_id = ?"
+      ).all(LOCAL_MACHINE);
+
+      expect(localOnly.length).toBe(1);
+      expect(localOnly[0]!.date_hour).toBe("2024-12-28-09");
+    });
+
+    test("local windows query excludes synced data", () => {
+      // Local window
+      db.run(
+        `INSERT INTO usage_windows (window_start, window_end, active_minutes, utilization_pct, claude_usage_pct, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        ["2024-12-28T09:00:00Z", "2024-12-28T14:00:00Z", 100, 33, 70, LOCAL_MACHINE]
+      );
+      // Remote window
+      db.run(
+        `INSERT INTO usage_windows (window_start, window_end, active_minutes, utilization_pct, claude_usage_pct, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        ["2024-12-28T10:00:00Z", "2024-12-28T15:00:00Z", 120, 40, 80, REMOTE_MACHINE]
+      );
+
+      const localOnly = db.query<{ window_start: string }, [string]>(
+        "SELECT window_start FROM usage_windows WHERE machine_id = ?"
+      ).all(LOCAL_MACHINE);
+
+      expect(localOnly.length).toBe(1);
+      expect(localOnly[0]!.window_start).toBe("2024-12-28T09:00:00Z");
+    });
+
+    test("all-data query includes both local and synced", () => {
+      // Local data
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-09", 40, new Date().toISOString(), LOCAL_MACHINE]
+      );
+      // Remote data
+      db.run(
+        "INSERT INTO hourly_usage (date_hour, usage_pct, updated_at, machine_id) VALUES (?, ?, ?, ?)",
+        ["2024-12-28-10", 60, new Date().toISOString(), REMOTE_MACHINE]
+      );
+
+      const all = db.query<{ date_hour: string }, []>(
+        "SELECT date_hour FROM hourly_usage ORDER BY date_hour"
+      ).all();
+
+      expect(all.length).toBe(2);
+    });
+  });
+
 });

@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
+import { hostname } from "os";
 import { CONFIG_PATH } from "../utils/paths.ts";
 import { logError, isValidNumber, isValidTimeString } from "../utils/errors.ts";
 
@@ -267,3 +268,18 @@ export const DAY_LABELS: Record<DayOfWeek, string> = {
   saturday: "Saturday",
   sunday: "Sunday",
 };
+
+/**
+ * Gets or generates machine ID for identifying this machine's data.
+ */
+export function getMachineId(): string {
+  const config = getSyncConfig();
+  if (config.machine_id) {
+    return config.machine_id;
+  }
+
+  // Generate a new machine ID based on hostname + random suffix
+  const machineId = `${hostname()}-${Math.random().toString(36).substring(2, 8)}`;
+  updateSyncConfig({ machine_id: machineId });
+  return machineId;
+}

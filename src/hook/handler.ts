@@ -152,8 +152,10 @@ function startNewWindow(timestamp: string): void {
 
   if (usage?.session?.resets_at_iso) {
     const cachedEnd = fromISO(usage.session.resets_at_iso);
-    // Only use cached reset time if it's in the future
-    if (cachedEnd > windowStartDate) {
+    // Only use cached reset time if it's significantly in the future (at least 30 min)
+    // This prevents using stale cache data from a previous session that just expired
+    const thirtyMinutes = 30 * 60 * 1000;
+    if (cachedEnd.getTime() - windowStartDate.getTime() > thirtyMinutes) {
       windowEnd = usage.session.resets_at_iso;
       logDebug("hook", "startNewWindow using cached reset time", {
         windowStart,
@@ -161,7 +163,7 @@ function startNewWindow(timestamp: string): void {
         percentage: usage.session.percentage,
       });
     } else {
-      // Cached reset time is stale (in the past), use calculated window
+      // Cached reset time is stale or too close, use calculated window
       // Also mark cache as stale so we don't use the old percentage
       isCacheStale = true;
       windowEnd = toISO(addHours(windowStartDate, 5));

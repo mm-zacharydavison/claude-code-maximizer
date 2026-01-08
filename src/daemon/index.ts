@@ -1,4 +1,4 @@
-import { checkAndNotify } from "./scheduler.ts";
+import { runSchedulerTick } from "./scheduler.ts";
 import { setDaemonPid } from "../config/state.ts";
 import { shouldRunAdjustment, runAdaptiveAdjustment } from "../analyzer/adaptive.ts";
 import { isLearningComplete } from "../config/state.ts";
@@ -54,8 +54,8 @@ export function startDaemon(): void {
   // Save PID to state
   setDaemonPid(process.pid);
 
-  // Initial check
-  checkAndNotify();
+  // Initial scheduler tick (handles both on-time and late window triggers)
+  runSchedulerTick();
 
   // Check for adaptive adjustment on startup
   try {
@@ -64,12 +64,12 @@ export function startDaemon(): void {
     console.error("Error in initial adjustment check:", err);
   }
 
-  // Set up notification interval
+  // Set up scheduler interval (runs every minute)
   intervalId = setInterval(() => {
     try {
-      checkAndNotify();
+      runSchedulerTick();
     } catch (err) {
-      console.error("Error in scheduler check:", err);
+      console.error("Error in scheduler tick:", err);
     }
   }, CHECK_INTERVAL_MS);
 

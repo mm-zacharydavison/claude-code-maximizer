@@ -10,6 +10,7 @@ export interface State {
   current_window_start: string | null;
   current_window_end: string | null; // From Claude's actual reset time
   daemon_pid: number | null;
+  last_autostart_time: string | null; // ISO timestamp of last autostart trigger
 }
 
 const DEFAULT_STATE: State = {
@@ -18,6 +19,7 @@ const DEFAULT_STATE: State = {
   current_window_start: null,
   current_window_end: null,
   daemon_pid: null,
+  last_autostart_time: null,
 };
 
 /**
@@ -49,6 +51,11 @@ function sanitizeState(parsed: Partial<State>): Partial<State> {
   // Validate daemon_pid
   if (parsed.daemon_pid === null || (isValidNumber(parsed.daemon_pid) && parsed.daemon_pid > 0)) {
     sanitized.daemon_pid = parsed.daemon_pid;
+  }
+
+  // Validate last_autostart_time
+  if (parsed.last_autostart_time === null || isValidTimestamp(parsed.last_autostart_time)) {
+    sanitized.last_autostart_time = parsed.last_autostart_time;
   }
 
   return sanitized;
@@ -108,6 +115,15 @@ export function setCurrentWindowEnd(windowEnd: string | null): void {
 
 export function setDaemonPid(pid: number | null): void {
   updateState({ daemon_pid: pid });
+}
+
+export function setLastAutoStartTime(time: string | null): void {
+  updateState({ last_autostart_time: time });
+}
+
+export function getLastAutoStartTime(): Date | null {
+  const state = loadState();
+  return state.last_autostart_time ? new Date(state.last_autostart_time) : null;
 }
 
 export function isInstalled(): boolean {

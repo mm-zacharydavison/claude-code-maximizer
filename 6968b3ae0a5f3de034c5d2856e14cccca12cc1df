@@ -1,0 +1,31 @@
+src/sync/gist.ts
+  c4073d3d491d1252 3-6,8,239-240,243,246,250,262,268,366-368,392-420,431-434,438
+src/config/index.ts
+  c4073d3d491d1252 3,271-285
+src/db/queries.ts
+  c4073d3d491d1252 3,49-52,55-57,60,75,78,83-95,97,135,137-138,186,189,194-203,205,304-416
+src/db/schema.ts
+  c4073d3d491d1252 5,7,9-11,15,22-23,44-45
+tests/unit/sync.test.ts
+  c4073d3d491d1252 6,9,407-608
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.29",
+  "base_commit_sha": "6968b3ae0a5f3de034c5d2856e14cccca12cc1df",
+  "prompts": {
+    "c4073d3d491d1252": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "36e5f52a-4379-4eef-bade-693c07ac4d16",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 673,
+      "total_deletions": 269,
+      "accepted_lines": 442,
+      "overriden_lines": 0
+    }
+  }
+}

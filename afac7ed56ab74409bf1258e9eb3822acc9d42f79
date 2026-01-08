@@ -1,0 +1,23 @@
+src/hook/handler.ts
+  e53320420a7cf66a 155-158,166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.29",
+  "base_commit_sha": "afac7ed56ab74409bf1258e9eb3822acc9d42f79",
+  "prompts": {
+    "e53320420a7cf66a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bf4d340-7455-4e9d-a3f1-668a3a8333ee",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 3,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}

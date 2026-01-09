@@ -1,0 +1,31 @@
+tests/unit/scheduler-autostart.test.ts
+  0bf0df041eb6b4e1 354-398
+tla-spec/rate_limit_optimizer_tests.tla
+  0bf0df041eb6b4e1 220,223-253,258,263,269,275,286,299,302,306,310,315,321,324,329,334
+src/daemon/scheduler.ts
+  0bf0df041eb6b4e1 57-59,78-88
+src/cli/commands/daemon.ts
+  0bf0df041eb6b4e1 59-62,223-230,234-332,348,352-357,364
+tla-spec/rate_limit_optimizer.tla
+  0bf0df041eb6b4e1 118-127,130-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.29",
+  "base_commit_sha": "c02e389d5e2b644a54a239f883f6afaad68ea780",
+  "prompts": {
+    "0bf0df041eb6b4e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d1474b1-5dda-4cf8-addb-c6629bfaeb27",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Zachary Davison <zachary.davison@meetsmore.com>",
+      "messages": [],
+      "total_additions": 244,
+      "total_deletions": 23,
+      "accepted_lines": 238,
+      "overriden_lines": 2
+    }
+  }
+}

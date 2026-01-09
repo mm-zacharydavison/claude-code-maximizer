@@ -54,8 +54,9 @@ export function runSchedulerTick(): void {
     // Calculate all optimal start times for today
     const optimalTimes = getOptimalTimesForDay(config, dayOfWeek);
 
-    // Auto-start window if we're in a scheduled window period (and no window is active)
-    if (optimalTimes.length > 0 && !appState.current_window_start) {
+    // Auto-start window if we're in a scheduled window period (and no window is currently active)
+    // Note: optimal times are often BEFORE working hours to maximize coverage during work
+    if (optimalTimes.length > 0 && !isWindowCurrentlyActive(appState, now)) {
       // Fire and forget - don't block the scheduler tick
       safeExecuteAsync("scheduler:autoStartWindowIfInPeriod", () =>
         autoStartWindowIfInPeriod(now, optimalTimes)
@@ -72,6 +73,19 @@ export function runSchedulerTick(): void {
   } catch (error) {
     logError("scheduler:runSchedulerTick", error);
   }
+}
+
+/**
+ * Check if there's a window currently active based on state timestamps.
+ * A window is active if current_window_end exists and is in the future.
+ * This is a quick local check - the actual Claude API check happens in autoStartWindowIfInPeriod.
+ */
+function isWindowCurrentlyActive(appState: ReturnType<typeof loadState>, now: Date): boolean {
+  if (!appState.current_window_end) {
+    return false;
+  }
+  const windowEnd = fromISO(appState.current_window_end);
+  return windowEnd > now;
 }
 
 /**

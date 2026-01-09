@@ -351,6 +351,51 @@ describe("scheduler autostart", () => {
     });
   });
 
+  describe("scenario 4: optimal times before work hours", () => {
+      // This is the primary use case - triggers are often 2-3 hours before work
+      // to ensure full quota is available when work begins
+
+      it("should trigger at 05:00 for 07:30-16:00 work day", async () => {
+        const now = timeToday(5, 0); // 05:00 - before work hours
+        mockGetCachedUsage.mockReturnValue(null);
+        mockGetClaudeUsage.mockResolvedValue(null);
+
+        await autoStartWindowIfInPeriod(now, ["05:00"]);
+
+        expect(mockSpawnClaudeSession).toHaveBeenCalled();
+      });
+
+      it("should trigger late at 05:30 for 05:00 optimal time", async () => {
+        const now = timeToday(5, 30); // 30 min late
+        mockGetCachedUsage.mockReturnValue(null);
+        mockGetClaudeUsage.mockResolvedValue(null);
+
+        await autoStartWindowIfInPeriod(now, ["05:00"]);
+
+        expect(mockSpawnClaudeSession).toHaveBeenCalled();
+      });
+
+      it("should trigger at 10:00 for second optimal time in day", async () => {
+        const now = timeToday(10, 0);
+        mockGetCachedUsage.mockReturnValue(null);
+        mockGetClaudeUsage.mockResolvedValue(null);
+
+        await autoStartWindowIfInPeriod(now, ["05:00", "10:00", "15:00"]);
+
+        expect(mockSpawnClaudeSession).toHaveBeenCalled();
+      });
+
+      it("should NOT trigger at 04:59 (1 min before 05:00 window)", async () => {
+        const now = timeToday(4, 59);
+        mockGetCachedUsage.mockReturnValue(null);
+        mockGetClaudeUsage.mockResolvedValue(null);
+
+        await autoStartWindowIfInPeriod(now, ["05:00"]);
+
+        expect(mockSpawnClaudeSession).not.toHaveBeenCalled();
+      });
+    });
+
   describe("integration: decision matrix", () => {
     // Full truth table verification
     const scenarios = [

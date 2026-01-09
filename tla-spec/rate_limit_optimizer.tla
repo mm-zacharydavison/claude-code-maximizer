@@ -115,17 +115,29 @@ MinSlack(profile, trig) ==
 
 \* Find optimal trigger time
 \* Priority: 1) Valid (no overruns), 2) Max buckets, 3) Max min-slack
+\*
+\* IMPORTANT: Optimal triggers are almost always BEFORE work hours begin.
+\* This is intentional - starting a window before work ensures full quota
+\* is available when work begins. For example:
+\*   - Work hours: 07:30-16:00
+\*   - Optimal triggers: 05:00, 10:00, 15:00
+\*   - Window at 05:00 covers 07:30-10:00 with full quota
+\*
+\* The scheduler must handle triggers outside work hours correctly,
+\* especially around midnight boundaries and stale state from previous days.
 FindOptimalTrigger(profile) ==
-    LET 
+    LET
+        \* Candidates range from midnight (0) to work start
+        \* This allows triggers hours before work begins
         candidates == {t * TIME_GRANULARITY : t \in 0..(WORK_START \div TIME_GRANULARITY)}
         valid      == {t \in candidates : IsValidTrigger(profile, t)}
     IN  IF valid = {}
         THEN WORK_START  \* Fallback to naive start
         ELSE CHOOSE best \in valid :
              \A other \in valid :
-                /\ Cardinality(WindowsForTrigger(best)) >= 
+                /\ Cardinality(WindowsForTrigger(best)) >=
                    Cardinality(WindowsForTrigger(other))
-                /\ (Cardinality(WindowsForTrigger(best)) = 
+                /\ (Cardinality(WindowsForTrigger(best)) =
                     Cardinality(WindowsForTrigger(other))
                     => MinSlack(profile, best) >= MinSlack(profile, other))
 

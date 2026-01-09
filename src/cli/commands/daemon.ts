@@ -56,6 +56,10 @@ export async function daemon(args: string[]): Promise<void> {
       await uninstallPlatformService();
       break;
 
+    case "logs":
+      await daemonLogs(args.slice(1));
+      break;
+
     default:
       showDaemonHelp();
   }
@@ -216,6 +220,116 @@ async function uninstallPlatformService(): Promise<void> {
   }
 }
 
+async function daemonLogs(args: string[]): Promise<void> {
+  const follow = args.includes("-f") || args.includes("--follow");
+  const clearFlag = args.includes("--clear");
+
+  // Parse --tail or -n for number of lines
+  let tailLines: number | null = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--tail" || args[i] === "-n") {
+      const arg = args[i + 1]
+      if (!arg) { return }
+      const num = parseInt(arg, 10);
+      if (!isNaN(num)) {
+        tailLines = num;
+      }
+    }
+  }
+
+  // Default to 50 lines if not following
+  if (tailLines === null && !follow) {
+    tailLines = 50;
+  }
+
+  if (clearFlag) {
+    try {
+      fs.unlinkSync(DAEMON_LOG_PATH);
+      console.log("Daemon logs cleared.");
+    } catch {
+      console.log("No logs to clear.");
+    }
+    return;
+  }
+
+  // Check if running under systemd - if so, use journalctl
+  if (isLinux() && isServiceRunning()) {
+    await showSystemdLogs(follow, tailLines);
+    return;
+  }
+
+  // For macOS launchd or background process, use log file
+  if (!fs.existsSync(DAEMON_LOG_PATH)) {
+    console.log("No daemon logs found.");
+    console.log();
+    console.log(`Log file location: ${DAEMON_LOG_PATH}`);
+    console.log();
+    console.log("Logs are created when the daemon runs.");
+    console.log("Start the daemon with: ccmax daemon start");
+    return;
+  }
+
+  if (follow) {
+    // Use tail -f for following logs
+    console.log(`Following ${DAEMON_LOG_PATH} (Ctrl+C to stop)`);
+    console.log("─".repeat(50));
+    const child = spawn("tail", ["-f", DAEMON_LOG_PATH], {
+      stdio: "inherit",
+    });
+    // Wait for the process (user will Ctrl+C)
+    await new Promise<void>((resolve) => {
+      child.on("close", () => resolve());
+    });
+  } else {
+    // Read and display logs
+    const content = fs.readFileSync(DAEMON_LOG_PATH, "utf-8");
+    const lines = content.trim().split("\n");
+
+    const displayLines = tailLines ? lines.slice(-tailLines) : lines;
+
+    if (displayLines.length === 0) {
+      console.log("Log file exists but is empty.");
+      return;
+    }
+
+    console.log(`Daemon logs (last ${displayLines.length} lines)`);
+    console.log(`File: ${DAEMON_LOG_PATH}`);
+    console.log("─".repeat(50));
+    for (const line of displayLines) {
+      console.log(line);
+    }
+
+    if (lines.length > displayLines.length) {
+      console.log("─".repeat(50));
+      console.log(`Showing ${displayLines.length} of ${lines.length} lines. Use --tail N for more.`);
+    }
+  }
+}
+
+async function showSystemdLogs(follow: boolean, tailLines: number | null): Promise<void> {
+  const args = ["--user", "-u", "ccmax", "--no-pager"];
+
+  if (follow) {
+    args.push("-f");
+    console.log("Following systemd journal (Ctrl+C to stop)");
+    console.log("─".repeat(50));
+  } else {
+    if (tailLines) {
+      args.push("-n", String(tailLines));
+    }
+    console.log(`Daemon logs from systemd journal${tailLines ? ` (last ${tailLines} lines)` : ""}`);
+    console.log("─".repeat(50));
+  }
+
+  const child = spawn("journalctl", args, {
+    stdio: "inherit",
+  });
+
+  await new Promise<void>((resolve) => {
+    child.on("close", () => resolve());
+  });
+}
+
 function showDaemonHelp(): void {
   const serviceType = getServiceTypeName();
   const serviceFlag = isMacOS() ? "--launchd" : isLinux() ? "--systemd" : "--service";
@@ -231,8 +345,15 @@ SUBCOMMANDS:
   start --service   Start via ${serviceType} (persists across reboots)
   stop              Stop the daemon
   status            Show daemon status
+  logs              View daemon logs
   install-service   Install ${serviceType} user service
   uninstall-service Remove ${serviceType} user service
+
+LOG OPTIONS:
+  logs              Show last 50 lines of logs
+  logs -f           Follow logs in real-time (like tail -f)
+  logs --tail N     Show last N lines
+  logs --clear      Delete the log file
 
 EXAMPLES:
   ccmax daemon start            Start daemon (stops on logout)
@@ -240,5 +361,6 @@ EXAMPLES:
   ccmax daemon start ${serviceFlag}  Same as --service
   ccmax daemon stop             Stop the daemon
   ccmax daemon status           Check if daemon is running
+  ccmax daemon logs -f          Follow daemon logs in real-time
 `);
 }

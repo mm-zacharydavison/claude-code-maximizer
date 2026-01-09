@@ -217,32 +217,62 @@ Test_SpikyUsageHandled ==
         \/ optimal = WORK_START
 
 =============================================================================
-(* TEST CASE 5: EDGE CASES *)
+(* TEST CASE 5: TRIGGERS BEFORE WORK HOURS *)
 =============================================================================
 
-\* TC5.1: Zero usage day should not break profile
+\* TC5.0: Optimal triggers are typically BEFORE work start
+\* This is the expected behavior - triggers before work ensure full quota at work start
+Test_OptimalTriggerBeforeWorkStart ==
+    LET profile == MockProfileUniform  \* Any reasonable profile
+        optimal == FindOptimalTrigger(profile)
+    IN  optimal < WORK_START
+
+\* TC5.0a: Standard workday (07:30-16:00) should have first trigger around 05:00
+\* With 5-hour windows and work 07:30-16:00:
+\*   - Trigger at 05:00 -> window covers 05:00-10:00 (full quota available at 07:30)
+\*   - Trigger at 10:00 -> window covers 10:00-15:00
+\*   - Trigger at 15:00 -> window covers 15:00-20:00 (covers rest of work)
+Test_StandardWorkdayFirstTrigger ==
+    LET profile == DefaultProfile
+        optimal == FindOptimalTrigger(profile)
+    IN  \* First trigger should be roughly 2.5 hours before work (to have reset at 10:00)
+        optimal <= WORK_START - 120  \* At least 2 hours before work
+
+\* TC5.0b: Verify multiple windows are scheduled for long workdays
+Test_MultipleWindowsForWorkday ==
+    LET profile == MockProfileUniform
+        optimal == FindOptimalTrigger(profile)
+        windows == WindowsForTrigger(optimal)
+    IN  \* For 8.5 hour workday (07:30-16:00), should have 2+ windows
+        Cardinality(windows) >= 2
+
+=============================================================================
+(* TEST CASE 6: EDGE CASES *)
+=============================================================================
+
+\* TC6.1: Zero usage day should not break profile
 Test_ZeroUsageDay ==
     (day_count > 0 /\ usage_log = [x \in {} |-> 0]) =>
         BuildProfile(usage_log) = [h \in 0..23 |-> 0]
 
-\* TC5.2: Single window fits entire workday
+\* TC6.2: Single window fits entire workday
 Test_SingleWindowWorkday ==
     (WORK_END - WORK_START <= WINDOW_SIZE) =>
         Cardinality(WindowsForTrigger(WORK_START)) = 1
 
-\* TC5.3: Window boundary exactly at work start
+\* TC6.3: Window boundary exactly at work start
 Test_WindowBoundaryAtWorkStart ==
     LET trig == WORK_START - WINDOW_SIZE  \* Reset exactly at work start
         windows == WindowsForTrigger(trig)
     IN  Cardinality(windows) >= 1
 
-\* TC5.4: Window boundary exactly at work end
+\* TC6.4: Window boundary exactly at work end
 Test_WindowBoundaryAtWorkEnd ==
     LET trig == WORK_END - WINDOW_SIZE  \* Reset exactly at work end
         windows == WindowsForTrigger(trig)
     IN  \E w \in windows : w.work_overlap_end = WORK_END
 
-\* TC5.5: Very high usage should force 2-bucket fallback
+\* TC6.5: Very high usage should force 2-bucket fallback
 MockProfileExcessive ==
     [h \in 0..23 |->
         IF h \in 7..15 THEN 50 ELSE 0]  \* 400 total - way over any valid config
@@ -253,11 +283,11 @@ Test_ExcessiveUsageFallback ==
     IN  \* Should fall back to naive trigger when no valid option
         optimal = WORK_START
 
-\* TC5.6: Exactly quota usage should be valid (boundary)
+\* TC6.6: Exactly quota usage should be valid (boundary)
 MockProfileExactQuota ==
     [h \in 0..23 |->
         CASE h \in 7..9   -> 33   \* 99 in first potential window
-          [] h \in 10..14 -> 20   \* 100 in second window  
+          [] h \in 10..14 -> 20   \* 100 in second window
           [] h = 15       -> 1    \* Tiny remainder
           [] OTHER        -> 0]
 
@@ -266,42 +296,42 @@ Test_ExactQuotaBoundary ==
     IN  \E trig \in 0..WORK_START : IsValidTrigger(profile, trig)
 
 =============================================================================
-(* TEST CASE 6: TEMPORAL PROPERTIES *)
+(* TEST CASE 7: TEMPORAL PROPERTIES *)
 =============================================================================
 
-\* TC6.1: System always eventually reaches steady state
+\* TC7.1: System always eventually reaches steady state
 Test_EventualSteadyState ==
     <>(phase = "steady_state")
 
-\* TC6.2: Once in steady state, should stay there
+\* TC7.2: Once in steady state, should stay there
 Test_SteadyStateStable ==
     [](phase = "steady_state" => [](phase = "steady_state"))
 
-\* TC6.3: Wait events should be minimized in steady state
+\* TC7.3: Wait events should be minimized in steady state
 Test_MinimalWaitsInSteadyState ==
-    (phase = "steady_state") => 
+    (phase = "steady_state") =>
         (wait_events' <= wait_events + 1)  \* At most one wait per transition
 
-\* TC6.4: Total usage should increase during work hours
+\* TC7.4: Total usage should increase during work hours
 Test_UsageIncreasesDuringWork ==
     (IsWorkTime(TimeOfDay(clock)) /\ phase = "steady_state") ~>
     (total_usage' > total_usage)
 
 =============================================================================
-(* TEST CASE 7: RECALIBRATION *)
+(* TEST CASE 8: RECALIBRATION *)
 =============================================================================
 
-\* TC7.1: Profile should update with new data
+\* TC8.1: Profile should update with new data
 Test_ProfileUpdatesWeekly ==
     (phase = "steady_state" /\ day_count % 7 = 0) =>
         usage_profile' = BuildProfile(usage_log)
 
-\* TC7.2: Trigger should be recalculated on profile update
+\* TC8.2: Trigger should be recalculated on profile update
 Test_TriggerRecalculatedOnUpdate ==
     (phase = "steady_state" /\ usage_profile' /= usage_profile) =>
         trigger_time' = FindOptimalTrigger(usage_profile')
 
-\* TC7.3: Recalibration should not cause wait violations
+\* TC8.3: Recalibration should not cause wait violations
 Test_RecalibrationNoViolation ==
     (phase = "steady_state" /\ usage_profile' /= usage_profile) =>
         IsValidTrigger(usage_profile', trigger_time')
